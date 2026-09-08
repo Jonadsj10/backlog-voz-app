@@ -1,0 +1,18 @@
+{
+  "name": "backlog-voz-app",
+  "version": "1.0.0",
+  "description": "App standalone para dictar ideas por voz y generar historias de usuario con Claude, con backlog editable, persistencia local y export a Excel.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2"
+  },
+  "license": "UNLICENSED",
+  "private": true
+}

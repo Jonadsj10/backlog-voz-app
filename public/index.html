@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Backlog por voz</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,500;0,600;1,500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --board: #362E28;
+    --board-2: #2E2721;
+    --card: #FBF6EC;
+    --card-edge: #E9DEC7;
+    --ink: #2B2420;
+    --ink-soft: #6B5F52;
+    --accent-blue: #3D5A73;
+    --accent-blue-dark: #2C4356;
+    --green: #4C7A5B;
+    --amber: #C99A3E;
+    --coral: #C1543A;
+    --paper-line: rgba(43,36,32,0.08);
+    --font-display: 'Fraunces', serif;
+    --font-body: 'IBM Plex Sans', sans-serif;
+    --font-mono: 'IBM Plex Mono', monospace;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    font-family: var(--font-body);
+    color: var(--card);
+    background:
+      radial-gradient(ellipse at 20% -10%, rgba(255,255,255,0.05), transparent 55%),
+      radial-gradient(ellipse at 90% 10%, rgba(255,255,255,0.03), transparent 40%),
+      var(--board);
+    min-height:100vh;
+  }
+  .shell{
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 40px 24px 80px;
+  }
+  header{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-end;
+    gap: 24px;
+    flex-wrap: wrap;
+    margin-bottom: 36px;
+    animation: fadeIn .6s ease;
+  }
+  @keyframes fadeIn{ from{opacity:0; transform: translateY(6px);} to{opacity:1; transform:none;} }
+  h1{
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: clamp(28px, 4vw, 40px);
+    margin: 0 0 6px;
+    color: #FBF6EC;
+    letter-spacing: -0.01em;
+  }
+  header p{
+    margin:0;
+    color: #B9AF9F;
+    font-size: 14.5px;
+    max-width: 46ch;
+  }
+  .counter{
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: #B9AF9F;
+    text-align:right;
+    white-space: nowrap;
+  }
+  .counter strong{ color: #FBF6EC; font-size: 20px; display:block; font-weight:500; }
+
+  /* ---- Capture panel ---- */
+  .capture{
+    background: linear-gradient(180deg, #423A32, #362E28);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 14px;
+    padding: 28px;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 26px;
+    align-items: start;
+    margin-bottom: 44px;
+    box-shadow: 0 20px 40px -20px rgba(0,0,0,0.5);
+  }
+  @media (max-width: 720px){ .capture{ grid-template-columns: 1fr; justify-items:center; text-align:center; } }
+
+  .mic-wrap{ display:flex; flex-direction:column; align-items:center; gap:10px; }
+  .mic-btn{
+    position:relative;
+    width: 84px; height: 84px;
+    border-radius: 50%;
+    border: none;
+    cursor:pointer;
+    background: var(--coral);
+    color: #FBF6EC;
+    display:flex; align-items:center; justify-content:center;
+    transition: transform .15s ease, background .2s ease;
+  }
+  .mic-btn:hover{ transform: scale(1.04); }
+  .mic-btn:active{ transform: scale(0.97); }
+  .mic-btn.listening{ background: var(--accent-blue); }
+  .mic-btn.listening::before,
+  .mic-btn.listening::after{
+    content:"";
+    position:absolute;
+    inset:0;
+    border-radius:50%;
+    border: 2px solid var(--accent-blue);
+    animation: ring 1.6s ease-out infinite;
+  }
+  .mic-btn.listening::after{ animation-delay: .5s; }
+  @keyframes ring{ 0%{ transform:scale(1); opacity:.7;} 100%{ transform:scale(1.7); opacity:0;} }
+  .mic-btn svg{ width: 30px; height:30px; }
+  .mic-label{ font-size: 12.5px; color:#B9AF9F; font-family: var(--font-mono); min-height: 16px; }
+
+  .transcript-col{ display:flex; flex-direction:column; gap:10px; width:100%; }
+  .transcript-col label{
+    font-family: var(--font-mono); font-size: 11.5px; letter-spacing: .03em;
+    color:#9A8F80;
+  }
+  textarea#transcript{
+    width:100%;
+    min-height: 92px;
+    resize: vertical;
+    background: #2C2620;
+    border: 1px solid rgba(255,255,255,0.08);
+    color: #F1EADB;
+    font-family: var(--font-body);
+    font-size: 15px;
+    line-height: 1.5;
+    border-radius: 8px;
+    padding: 12px 14px;
+  }
+  textarea#transcript:focus{ outline: 1.5px solid var(--accent-blue); }
+  .capture-actions{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  button.primary{
+    background: var(--accent-blue);
+    color: #FBF6EC;
+    border: none;
+    font-family: var(--font-body);
+    font-weight: 500;
+    font-size: 14.5px;
+    padding: 11px 20px;
+    border-radius: 8px;
+    cursor:pointer;
+    transition: background .2s ease;
+  }
+  button.primary:hover{ background: var(--accent-blue-dark); }
+  button.primary:disabled{ opacity:.5; cursor:default; }
+  button.ghost{
+    background: transparent;
+    color: #C8BFAF;
+    border: 1px solid rgba(255,255,255,0.15);
+    font-family: var(--font-body);
+    font-size: 13.5px;
+    padding: 10px 16px;
+    border-radius: 8px;
+    cursor:pointer;
+  }
+  button.ghost:hover{ border-color: rgba(255,255,255,0.35); color:#fff; }
+  .status-line{ font-size: 13px; color:#B9AF9F; min-height: 18px; }
+  .status-line.error{ color: var(--coral); }
+  .support-warning{
+    font-size: 12.5px; color:#C99A3E; background: rgba(201,154,62,0.1);
+    border: 1px solid rgba(201,154,62,0.3); padding: 8px 12px; border-radius: 6px;
+  }
+
+  /* ---- Results ---- */
+  .results-head{
+    display:flex; justify-content:space-between; align-items:center;
+    margin-bottom: 20px; flex-wrap:wrap; gap:12px;
+  }
+  .results-head h2{
+    font-family: var(--font-display); font-weight:600; font-size: 20px;
+    color:#FBF6EC; margin:0;
+  }
+  .results-actions{ display:flex; gap:10px; }
+
+  .grid{
+    display:grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 26px 22px;
+  }
+  .card{
+    position:relative;
+    background: var(--card);
+    color: var(--ink);
+    border-radius: 3px;
+    padding: 22px 18px 16px;
+    box-shadow: 0 14px 26px -14px rgba(0,0,0,0.55), 0 2px 0 var(--card-edge);
+    border: 1px solid var(--card-edge);
+  }
+  .card:nth-child(3n+1){ transform: rotate(-0.6deg); }
+  .card:nth-child(3n+2){ transform: rotate(0.5deg); }
+  .card:nth-child(3n+3){ transform: rotate(-0.3deg); }
+  .pin{
+    position:absolute; top:-9px; left:50%; transform: translateX(-50%);
+    width:16px; height:16px; border-radius:50%;
+    box-shadow: 0 3px 4px rgba(0,0,0,0.35);
+    border: 2px solid rgba(255,255,255,0.5);
+  }
+  .pin.alta{ background: var(--coral); }
+  .pin.media{ background: var(--amber); }
+  .pin.baja{ background: var(--green); }
+
+  .card-id{
+    font-family: var(--font-mono); font-size: 11px; color: var(--ink-soft);
+    letter-spacing: .02em; margin-bottom: 6px; display:flex; justify-content:space-between; align-items:center;
+  }
+  .delete-btn{
+    background:none; border:none; color: var(--ink-soft); cursor:pointer;
+    font-size: 13px; font-family: var(--font-mono); padding:2px 4px;
+  }
+  .delete-btn:hover{ color: var(--coral); }
+
+  .card input.title{
+    width:100%; border:none; background:transparent; font-family: var(--font-display);
+    font-weight: 600; font-size: 18px; color: var(--ink); padding: 0 0 8px;
+    border-bottom: 1px solid var(--paper-line); margin-bottom: 10px;
+  }
+  .card input.title:focus{ outline:none; border-bottom-color: var(--accent-blue); }
+
+  .field{ margin-bottom: 9px; }
+  .field label{
+    display:block; font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-soft);
+    text-transform: none; margin-bottom: 3px;
+  }
+  .field textarea, .field input[type=text]{
+    width:100%; border:1px solid transparent; background: rgba(43,36,32,0.03);
+    border-radius: 5px; padding: 6px 8px; font-family: var(--font-body); font-size: 13.5px;
+    color: var(--ink); resize: vertical; line-height:1.4;
+  }
+  .field textarea:focus, .field input[type=text]:focus{ outline:none; border-color: var(--accent-blue); background:#fff; }
+  .field textarea.criteria{ min-height: 66px; }
+
+  .meta-row{ display:flex; gap:10px; margin-top: 12px; }
+  .meta-row .field{ flex:1; margin-bottom:0; }
+  .meta-row select{
+    width:100%; font-family: var(--font-mono); font-size: 12.5px; padding: 6px 6px;
+    border-radius: 5px; border: 1px solid var(--card-edge); background:#fff; color: var(--ink);
+  }
+
+  .empty-state{
+    grid-column: 1/-1;
+    text-align:center;
+    padding: 60px 20px;
+    color: #9A8F80;
+    font-size: 14.5px;
+    border: 1px dashed rgba(255,255,255,0.15);
+    border-radius: 12px;
+  }
+
+  footer{ margin-top: 30px; text-align:center; color:#7A7060; font-size:12px; }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <header>
+    <div>
+      <h1>Backlog por voz</h1>
+      <p>Contá tu idea en voz alta y armamos las historias de usuario con formato ágil, criterios de aceptación y estimación.</p>
+    </div>
+    <div class="counter"><strong id="storyCount">0</strong>historias en el backlog</div>
+  </header>
+
+  <div class="capture">
+    <div class="mic-wrap">
+      <button class="mic-btn" id="micBtn" title="Grabar idea">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+          <path d="M19 10v1a7 7 0 0 1-14 0v-1"/>
+          <line x1="12" y1="19" x2="12" y2="23"/>
+          <line x1="8" y1="23" x2="16" y2="23"/>
+        </svg>
+      </button>
+      <div class="mic-label" id="micLabel">Tocá para hablar</div>
+    </div>
+
+    <div class="transcript-col">
+      <label for="transcript">TU IDEA (podés editarla antes de generar)</label>
+      <textarea id="transcript" placeholder="Ej: necesito que el equipo pueda filtrar los pedidos por estado y que además se pueda exportar ese listado a excel..."></textarea>
+      <div id="supportWarning" class="support-warning" style="display:none;">
+        Este navegador no soporta dictado por voz (o el micrófono no está disponible en esta vista). Podés escribir la idea manualmente arriba.
+      </div>
+      <div class="capture-actions">
+        <button class="primary" id="generateBtn">Generar historias</button>
+        <button class="ghost" id="clearTranscriptBtn">Limpiar texto</button>
+      </div>
+      <div class="status-line" id="statusLine"></div>
+    </div>
+  </div>
+
+  <div class="results-head">
+    <h2>Backlog</h2>
+    <div class="results-actions">
+      <button class="ghost" id="exportBtn">Exportar a Excel</button>
+      <button class="ghost" id="clearBacklogBtn">Vaciar backlog</button>
+    </div>
+  </div>
+
+  <div class="grid" id="grid">
+    <div class="empty-state" id="emptyState">Todavía no generaste ninguna historia. Contá tu idea arriba para empezar.</div>
+  </div>
+
+  <footer>Los datos se guardan en tu navegador entre sesiones. Exportá seguido a Excel para no perder el trabajo.</footer>
+</div>
+
+<script>
+let stories = [];
+let nextIdNumber = 1;
+
+const grid = document.getElementById('grid');
+const emptyState = document.getElementById('emptyState');
+const storyCount = document.getElementById('storyCount');
+const statusLine = document.getElementById('statusLine');
+const transcriptEl = document.getElementById('transcript');
+
+function setStatus(msg, isError){
+  statusLine.textContent = msg || '';
+  statusLine.className = 'status-line' + (isError ? ' error' : '');
+}
+
+// ---------- persistence (localStorage del navegador, entre sesiones) ----------
+function loadBacklog(){
+  try{
+    const raw = localStorage.getItem('backlog-stories');
+    if(raw){
+      const parsed = JSON.parse(raw);
+      stories = parsed.stories || [];
+      nextIdNumber = parsed.nextIdNumber || (stories.length + 1);
+    }
+  }catch(e){
+    // no hay backlog guardado todavía, o el storage no está disponible en esta vista
+  }
+  render();
+}
+
+function saveBacklog(){
+  try{
+    localStorage.setItem('backlog-stories', JSON.stringify({ stories, nextIdNumber }));
+  }catch(e){
+    console.error('No se pudo guardar el backlog', e);
+  }
+}
+
+// ---------- rendering ----------
+function formatId(n){ return 'HU-' + String(n).padStart(3, '0'); }
+
+function priorityClass(p){
+  if(!p) return 'media';
+  const v = p.toLowerCase();
+  if(v.startsWith('alt')) return 'alta';
+  if(v.startsWith('baj')) return 'baja';
+  return 'media';
+}
+
+function render(){
+  grid.innerHTML = '';
+  storyCount.textContent = stories.length;
+
+  if(stories.length === 0){
+    grid.appendChild(emptyState);
+    return;
+  }
+
+  stories.forEach(story => {
+    const card = document.createElement('div');
+    card.className = 'card';
+
+    const pin = document.createElement('div');
+    pin.className = 'pin ' + priorityClass(story.prioridad);
+    card.appendChild(pin);
+
+    card.innerHTML += `
+      <div class="card-id">
+        <span>${story.id}</span>
+        <button class="delete-btn" data-action="delete" data-id="${story.id}">eliminar</button>
+      </div>
+      <input class="title" type="text" value="${escapeAttr(story.titulo)}" data-field="titulo" data-id="${story.id}">
+      <div class="field">
+        <label>COMO</label>
+        <input type="text" value="${escapeAttr(story.rol)}" data-field="rol" data-id="${story.id}">
+      </div>
+      <div class="field">
+        <label>QUIERO</label>
+        <input type="text" value="${escapeAttr(story.quiero)}" data-field="quiero" data-id="${story.id}">
+      </div>
+      <div class="field">
+        <label>PARA QUE</label>
+        <input type="text" value="${escapeAttr(story.paraQue)}" data-field="paraQue" data-id="${story.id}">
+      </div>
+      <div class="field">
+        <label>CRITERIOS DE ACEPTACION</label>
+        <textarea class="criteria" data-field="criterios" data-id="${story.id}">${escapeHtml((story.criterios||[]).join('\n'))}</textarea>
+      </div>
+      <div class="meta-row">
+        <div class="field">
+          <label>PUNTOS</label>
+          <select data-field="puntos" data-id="${story.id}">
+            ${[1,2,3,5,8,13,21].map(p => `<option value="${p}" ${Number(story.puntos)===p?'selected':''}>${p}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field">
+          <label>PRIORIDAD</label>
+          <select data-field="prioridad" data-id="${story.id}">
+            ${['Alta','Media','Baja'].map(p => `<option value="${p}" ${story.prioridad===p?'selected':''}>${p}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+    `;
+    grid.appendChild(card);
+  });
+}
+
+function escapeHtml(str){
+  return (str || '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+}
+function escapeAttr(str){
+  return escapeHtml(str).replace(/"/g, '&quot;');
+}
+
+grid.addEventListener('click', (e) => {
+  if(e.target.dataset.action === 'delete'){
+    const id = e.target.dataset.id;
+    stories = stories.filter(s => s.id !== id);
+    render();
+    saveBacklog();
+  }
+});
+
+grid.addEventListener('change', (e) => {
+  const field = e.target.dataset.field;
+  const id = e.target.dataset.id;
+  if(!field || !id) return;
+  const story = stories.find(s => s.id === id);
+  if(!story) return;
+  if(field === 'criterios'){
+    story.criterios = e.target.value.split('\n').map(s => s.trim()).filter(Boolean);
+  } else if(field === 'puntos'){
+    story.puntos = Number(e.target.value);
+  } else {
+    story[field] = e.target.value;
+  }
+  if(field === 'prioridad'){ render(); } // refresh pin color
+  saveBacklog();
+});
+
+// ---------- voice capture (Web Speech API, requiere permiso real del navegador) ----------
+const micBtn = document.getElementById('micBtn');
+const micLabel = document.getElementById('micLabel');
+const supportWarning = document.getElementById('supportWarning');
+let recognition = null;
+let listening = false;
+
+const SpeechRecognitionClass = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+if(!SpeechRecognitionClass){
+  supportWarning.style.display = 'block';
+  micBtn.disabled = true;
+  micBtn.style.opacity = 0.4;
+  micLabel.textContent = 'Dictado no disponible';
+} else {
+  recognition = new SpeechRecognitionClass();
+  recognition.lang = 'es-AR';
+  recognition.continuous = true;
+  recognition.interimResults = true;
+
+  let baseText = '';
+
+  recognition.onstart = () => {
+    listening = true;
+    micBtn.classList.add('listening');
+    micLabel.textContent = 'Escuchando... tocá para detener';
+    baseText = transcriptEl.value ? transcriptEl.value.trim() + ' ' : '';
+  };
+
+  recognition.onresult = (event) => {
+    let interim = '';
+    let final = '';
+    for(let i = event.resultIndex; i < event.results.length; i++){
+      const transcriptPiece = event.results[i][0].transcript;
+      if(event.results[i].isFinal){ final += transcriptPiece + ' '; }
+      else { interim += transcriptPiece; }
+    }
+    if(final){ baseText += final; }
+    transcriptEl.value = (baseText + interim).trim();
+  };
+
+  recognition.onerror = (event) => {
+    setStatus('No se pudo acceder al micrófono (' + event.error + '). Podés escribir tu idea manualmente.', true);
+    stopListening();
+  };
+
+  recognition.onend = () => {
+    if(listening){ stopListening(); }
+  };
+
+  micBtn.addEventListener('click', () => {
+    if(!listening){
+      try{
+        recognition.start();
+      }catch(e){
+        setStatus('No se pudo iniciar el micrófono. Revisá los permisos del navegador, o escribí tu idea directamente.', true);
+      }
+    } else {
+      recognition.stop();
+    }
+  });
+}
+
+function stopListening(){
+  listening = false;
+  micBtn.classList.remove('listening');
+  micLabel.textContent = 'Tocá para hablar';
+}
+
+document.getElementById('clearTranscriptBtn').addEventListener('click', () => {
+  transcriptEl.value = '';
+  setStatus('');
+});
+
+// ---------- generation via Claude (server-side, /api/generate-stories) ----------
+const generateBtn = document.getElementById('generateBtn');
+
+async function generateStories(ideaText){
+  let response;
+  try{
+    response = await fetch('/api/generate-stories', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idea: ideaText })
+    });
+  }catch(networkErr){
+    throw new Error('No se pudo conectar con el servidor. Revisá que esté corriendo (npm start).');
+  }
+
+  let body;
+  try{
+    body = await response.json();
+  }catch(parseErr){
+    throw new Error('El servidor devolvió una respuesta inesperada.');
+  }
+
+  if(!response.ok){
+    const message = (body && body.error && body.error.message) || 'Ocurrió un error generando las historias.';
+    throw new Error(message);
+  }
+
+  return body;
+}
+
+generateBtn.addEventListener('click', async () => {
+  const idea = transcriptEl.value.trim();
+  if(!idea){
+    setStatus('Contá o escribí la idea primero.', true);
+    return;
+  }
+  generateBtn.disabled = true;
+  setStatus('Generando historias...');
+
+  try{
+    const newStories = await generateStories(idea);
+    if(!Array.isArray(newStories) || newStories.length === 0){
+      throw new Error('No se generaron historias, probá reformular la idea.');
+    }
+    newStories.forEach(s => {
+      stories.push({
+        id: formatId(nextIdNumber++),
+        titulo: s.titulo || 'Sin titulo',
+        rol: s.rol || '',
+        quiero: s.quiero || '',
+        paraQue: s.paraQue || '',
+        criterios: Array.isArray(s.criterios) ? s.criterios : [],
+        puntos: Number(s.puntos) || 3,
+        prioridad: s.prioridad || 'Media'
+      });
+    });
+    render();
+    saveBacklog();
+    setStatus(newStories.length + (newStories.length === 1 ? ' historia agregada al backlog.' : ' historias agregadas al backlog.'));
+  }catch(err){
+    console.error(err);
+    setStatus('Ocurrió un error generando las historias: ' + err.message, true);
+  }finally{
+    generateBtn.disabled = false;
+  }
+});
+
+// ---------- export & clear ----------
+document.getElementById('exportBtn').addEventListener('click', () => {
+  if(stories.length === 0){
+    setStatus('No hay historias para exportar todavía.', true);
+    return;
+  }
+  const rows = stories.map(s => ({
+    'ID': s.id,
+    'Tipo': 'Historia de usuario',
+    'Titulo / Resumen': s.titulo,
+    'Descripcion': `Como ${s.rol}, quiero ${s.quiero}, para ${s.paraQue}.`,
+    'Criterios de aceptacion': (s.criterios || []).map((c,i) => (i+1)+'. '+c).join('\n'),
+    'Story Points': s.puntos,
+    'Prioridad': s.prioridad
+  }));
+  const ws = XLSX.utils.json_to_sheet(rows);
+  ws['!cols'] = [{wch:10},{wch:16},{wch:30},{wch:50},{wch:50},{wch:12},{wch:10}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Backlog');
+  XLSX.writeFile(wb, 'backlog.xlsx');
+});
+
+document.getElementById('clearBacklogBtn').addEventListener('click', () => {
+  if(stories.length === 0) return;
+  if(confirm('¿Vaciar todo el backlog? Esta acción no se puede deshacer.')){
+    stories = [];
+    nextIdNumber = 1;
+    render();
+    saveBacklog();
+    setStatus('Backlog vaciado.');
+  }
+});
+
+loadBacklog();
+</script>
+</body>
+</html>

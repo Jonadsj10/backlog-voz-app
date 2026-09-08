@@ -2,10 +2,11 @@
  * Servidor Express para "Backlog por voz".
  *
  * Sirve el frontend estático (public/) y expone POST /api/generate-stories,
- * que llama server-side a la API de Claude (Anthropic Messages API) para
- * convertir una idea dictada/escrita en historias de usuario.
+ * que llama server-side a la API de Gemini (Google Generative Language API,
+ * endpoint `models/{model}:generateContent`) para convertir una idea
+ * dictada/escrita en historias de usuario.
  *
- * La API key de Anthropic vive únicamente en process.env.ANTHROPIC_API_KEY
+ * La API key de Gemini vive únicamente en process.env.GEMINI_API_KEY
  * (cargada desde .env vía dotenv) y nunca se expone al cliente.
  */
 
@@ -17,10 +18,13 @@ const path = require('path');
 const app = express();
 
 const PORT = process.env.PORT || 3001;
-const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
-const ANTHROPIC_VERSION = '2023-06-01';
-const ANTHROPIC_MODEL = 'claude-sonnet-5';
-const MAX_TOKENS = 2000;
+const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+// Alias "siempre vigente" de Google: apunta a la versión estable de Flash
+// recomendada del momento, sin que haya que actualizar el nombre del modelo
+// a mano cada vez que Google saca una versión nueva. Overrideable por env
+// var si en algún momento se quiere pinnear una versión específica.
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-flash-latest';
+const MAX_OUTPUT_TOKENS = 2000;
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -63,13 +67,13 @@ function log(level, event, data) {
 }
 
 /**
- * Mismo system prompt que usaba el prototipo (Claude Artifact), adaptado
- * para pedirle a Claude que arme historias de usuario a partir de una idea.
+ * Mismo system prompt que usaba el prototipo (Claude Artifact), ahora enviado
+ * como `system_instruction` de Gemini en vez de ir pegado al mensaje de
+ * usuario (Gemini sí soporta ese campo separado del contents).
  *
- * @param {string} ideaText - Idea del usuario, ya validada como string no vacío.
- * @returns {string} Prompt completo a enviar como mensaje de usuario.
+ * @returns {string} Instrucciones fijas de rol y formato de salida.
  */
-function buildPrompt(ideaText) {
+function buildSystemInstruction() {
   return `Sos un Product Owner experto en metodologias agiles (Scrum/Kanban) que arma historias de usuario a partir de ideas dictadas por voz por un lider de equipo.
 
 Tarea: leer la idea y convertirla en una o mas historias de usuario completas.
@@ -79,27 +83,48 @@ Reglas:
 - Cada historia debe tener: titulo corto (maximo 8 palabras), rol (quien necesita la funcionalidad, ej "usuario del equipo de ventas"), la funcionalidad deseada en pocas palabras, el beneficio o motivo, entre 2 y 5 criterios de aceptacion concretos y verificables, una estimacion en story points (Fibonacci: 1, 2, 3, 5, 8, 13, 21) y una prioridad (Alta, Media o Baja) segun el impacto que se desprende de la idea.
 - Los criterios de aceptacion son oraciones cortas y verificables, no un parrafo.
 - Respondes UNICAMENTE con JSON valido (sin texto adicional, sin markdown, sin bloques de codigo), con este formato exacto:
-[{"titulo":"...", "rol":"...", "quiero":"...", "paraQue":"...", "criterios":["...","..."], "puntos":5, "prioridad":"Media"}]
-
-Idea del usuario:
-${ideaText}`;
+[{"titulo":"...", "rol":"...", "quiero":"...", "paraQue":"...", "criterios":["...","..."], "puntos":5, "prioridad":"Media"}]`;
 }
 
 /**
- * Extrae el texto de la respuesta de la Anthropic Messages API y le saca
+ * Arma el contenido de usuario (la idea dictada/escrita) que va en `contents`.
+ *
+ * @param {string} ideaText - Idea del usuario, ya validada como string no vacío.
+ * @returns {string} Texto a enviar como mensaje de usuario.
+ */
+function buildUserContent(ideaText) {
+  return `Idea del usuario:\n${ideaText}`;
+}
+
+/**
+ * Extrae el texto de la respuesta de Gemini (generateContent) y le saca
  * fences de markdown (```json ... ```) si vinieran, antes de parsearlo.
  *
- * @param {object} anthropicBody - Body JSON ya parseado de la respuesta de Anthropic.
+ * @param {object} geminiBody - Body JSON ya parseado de la respuesta de Gemini.
  * @returns {string} Texto plano, listo para JSON.parse.
- * @throws {Error} Si la respuesta no trae contenido de tipo texto.
+ * @throws {Error} Si la respuesta no trae candidatos o contenido de tipo texto
+ *   (por ejemplo, si el prompt fue bloqueado por los filtros de seguridad).
  */
-function extractText(anthropicBody) {
-  const block = Array.isArray(anthropicBody.content)
-    ? anthropicBody.content.find((c) => c.type === 'text')
-    : null;
-  if (!block || typeof block.text !== 'string') {
-    throw new Error('La respuesta de Anthropic no trajo contenido de texto.');
+function extractText(geminiBody) {
+  const candidate = Array.isArray(geminiBody.candidates) ? geminiBody.candidates[0] : null;
+
+  if (!candidate) {
+    const blockReason = geminiBody.promptFeedback && geminiBody.promptFeedback.blockReason;
+    throw new Error(
+      blockReason
+        ? `Gemini bloqueó la solicitud (motivo: ${blockReason}).`
+        : 'La respuesta de Gemini no trajo candidatos.'
+    );
   }
+
+  const parts = candidate.content && Array.isArray(candidate.content.parts) ? candidate.content.parts : [];
+  const block = parts.find((p) => typeof p.text === 'string');
+  if (!block) {
+    throw new Error(
+      `La respuesta de Gemini no trajo contenido de texto (finishReason: ${candidate.finishReason || 'desconocido'}).`
+    );
+  }
+
   let text = block.text.trim();
   // Saca fences de markdown tipo ```json ... ``` o ``` ... ``` si vinieran.
   if (text.startsWith('```')) {
@@ -109,8 +134,9 @@ function extractText(anthropicBody) {
 }
 
 /**
- * Llama a la Anthropic Messages API server-side para generar historias
- * de usuario a partir de una idea.
+ * Llama a la Gemini API (Generative Language API) server-side, endpoint
+ * `models/{model}:generateContent`, para generar historias de usuario a
+ * partir de una idea.
  *
  * @param {string} ideaText - Idea validada del usuario.
  * @returns {Promise<Array<object>>} Array de historias de usuario.
@@ -118,41 +144,45 @@ function extractText(anthropicBody) {
  *   HTTP arme la respuesta de error estándar.
  */
 async function generateStoriesFromIdea(ideaText) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     const err = new Error(
-      'Falta configurar ANTHROPIC_API_KEY en el servidor. Copiá .env.example a .env y pegá tu API key.'
+      'Falta configurar GEMINI_API_KEY en el servidor. Copiá .env.example a .env y pegá tu API key de Google AI Studio.'
     );
     err.statusCode = 500;
     err.code = 'CONFIGURATION_ERROR';
     throw err;
   }
 
+  const url = `${GEMINI_API_BASE}/models/${GEMINI_MODEL}:generateContent`;
+
   let response;
   try {
-    response = await fetch(ANTHROPIC_API_URL, {
+    response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': ANTHROPIC_VERSION,
+        'x-goog-api-key': apiKey,
       },
       body: JSON.stringify({
-        model: ANTHROPIC_MODEL,
-        max_tokens: MAX_TOKENS,
-        messages: [{ role: 'user', content: buildPrompt(ideaText) }],
+        systemInstruction: { parts: [{ text: buildSystemInstruction() }] },
+        contents: [{ role: 'user', parts: [{ text: buildUserContent(ideaText) }] }],
+        generationConfig: {
+          maxOutputTokens: MAX_OUTPUT_TOKENS,
+          responseMimeType: 'application/json',
+        },
       }),
     });
   } catch (networkErr) {
-    log('ERROR', 'anthropic_network_error', { message: networkErr.message });
-    const err = new Error('No se pudo conectar con la API de Anthropic. Probá de nuevo en un momento.');
+    log('ERROR', 'gemini_network_error', { message: networkErr.message });
+    const err = new Error('No se pudo conectar con la API de Gemini. Probá de nuevo en un momento.');
     err.statusCode = 502;
     err.code = 'UPSTREAM_ERROR';
     throw err;
   }
 
   if (!response.ok) {
-    let upstreamMessage = `Anthropic respondió con status ${response.status}.`;
+    let upstreamMessage = `Gemini respondió con status ${response.status}.`;
     try {
       const errBody = await response.json();
       if (errBody && errBody.error && errBody.error.message) {
@@ -161,21 +191,21 @@ async function generateStoriesFromIdea(ideaText) {
     } catch (_parseErr) {
       // el body de error no era JSON, seguimos con el mensaje genérico
     }
-    log('ERROR', 'anthropic_api_error', { status: response.status });
-    const err = new Error('La API de Anthropic devolvió un error: ' + upstreamMessage);
-    err.statusCode = response.status === 401 ? 502 : 502;
+    log('ERROR', 'gemini_api_error', { status: response.status });
+    const err = new Error('La API de Gemini devolvió un error: ' + upstreamMessage);
+    err.statusCode = 502;
     err.code = 'UPSTREAM_ERROR';
     throw err;
   }
 
-  const anthropicBody = await response.json();
+  const geminiBody = await response.json();
 
   let text;
   try {
-    text = extractText(anthropicBody);
+    text = extractText(geminiBody);
   } catch (extractErr) {
-    log('ERROR', 'anthropic_response_shape_error', { message: extractErr.message });
-    const err = new Error('La respuesta de Anthropic no tuvo el formato esperado.');
+    log('ERROR', 'gemini_response_shape_error', { message: extractErr.message });
+    const err = new Error('La respuesta de Gemini no tuvo el formato esperado: ' + extractErr.message);
     err.statusCode = 502;
     err.code = 'UPSTREAM_PARSE_ERROR';
     throw err;
@@ -232,6 +262,7 @@ app.post('/api/generate-stories', async (req, res) => {
 app.listen(PORT, () => {
   log('INFO', 'server_started', {
     port: PORT,
-    apiKeyConfigured: Boolean(process.env.ANTHROPIC_API_KEY),
+    model: GEMINI_MODEL,
+    apiKeyConfigured: Boolean(process.env.GEMINI_API_KEY),
   });
 });

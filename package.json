@@ -1,7 +1,7 @@
 {
   "name": "backlog-voz-app",
   "version": "1.0.0",
-  "description": "App standalone para dictar ideas por voz y generar historias de usuario con Claude, con backlog editable, persistencia local y export a Excel.",
+  "description": "App standalone para dictar ideas por voz y generar historias de usuario con Gemini, con backlog editable, persistencia local y export a Excel.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"

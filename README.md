@@ -1,10 +1,10 @@
 # Backlog por voz
 
-App standalone para dictar (o escribir) una idea, convertirla en historias de usuario con Claude,
+App standalone para dictar (o escribir) una idea, convertirla en historias de usuario con Gemini,
 y armar un backlog editable con persistencia local y export a Excel.
 
 Reemplaza al prototipo original (Claude Artifact), que solo podía correr dentro del sandbox de
-Artifacts: acá el dictado por voz usa el micrófono real del navegador y la API key de Anthropic
+Artifacts: acá el dictado por voz usa el micrófono real del navegador y la API key de Gemini
 vive únicamente en el servidor.
 
 ## Instalar
@@ -15,13 +15,15 @@ npm install
 
 ## Configurar la API key
 
-1. Copiá `.env.example` a `.env`:
+1. Sacá una API key gratis de Gemini en [Google AI Studio](https://aistudio.google.com/apikey)
+   (necesitás una cuenta de Google).
+2. Copiá `.env.example` a `.env`:
    ```bash
    cp .env.example .env
    ```
-2. Abrí `.env` y pegá tu API key de Anthropic:
+3. Abrí `.env` y pegá tu API key de Gemini:
    ```
-   ANTHROPIC_API_KEY=sk-ant-...
+   GEMINI_API_KEY=AIza...
    PORT=3001
    ```
 
@@ -39,7 +41,7 @@ Abrí [http://localhost:3001](http://localhost:3001) (o el puerto que hayas pues
 
 - Tocá el botón del micrófono para dictar tu idea (el navegador va a pedir permiso de micrófono).
   También podés escribirla directamente en el textarea.
-- Clickeá "Generar historias" para que Claude arme una o más historias de usuario (título, rol,
+- Clickeá "Generar historias" para que Gemini arme una o más historias de usuario (título, rol,
   quiero, para qué, criterios de aceptación, story points y prioridad).
 - Editá cualquier campo de las tarjetas directamente en el backlog.
 - "Exportar a Excel" descarga el backlog completo como `.xlsx`.

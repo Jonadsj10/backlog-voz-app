@@ -733,9 +733,21 @@ document.getElementById('clearTranscriptBtn').addEventListener('click', () => {
 // replica acá tal cual.
 // ============================================================================
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
-const GEMINI_MODEL = 'gemini-flash-latest';
+// Pinneado a una versión concreta, NO al alias "-latest": el alias apunta
+// siempre a la versión más nueva/popular del momento, y por eso sufre picos
+// de demanda ("high demand" / 503) más seguido. Ya pasó antes con el server
+// viejo: cambiar de "-latest" a una versión pinneada resolvió el mismo
+// error de sobrecarga que se repitió ahora en este cliente estático.
+// Verificado vigente el 2026-09-09 contra ai.google.dev/gemini-api/docs/models,
+// ai.google.dev/gemini-api/docs/deprecations y firebase.google.com/docs/ai-logic/models.
+// OJO para la próxima persona: Google ya anunció el retiro de
+// gemini-2.5-flash para ~16-20 de octubre de 2026 (reemplazo sugerido por
+// Google: gemini-3.5-flash o gemini-3.1-flash-lite). Repinnear antes de esa
+// fecha, o este mismo bug vuelve, pero como "modelo no disponible" en vez
+// de "alta demanda".
+const GEMINI_MODEL = 'gemini-2.5-flash';
 const MAX_OUTPUT_TOKENS = 8192;
-// gemini-flash-latest no soporta razonamiento apagado del todo salvo con
+// gemini-2.5-flash no soporta razonamiento apagado del todo salvo con
 // thinkingBudget: 0 (ver nota histórica en server.js / README). Si alguna
 // vez se pinnea un modelo "-pro", ese modelo exige mínimo 128.
 const THINKING_BUDGET = /-pro/i.test(GEMINI_MODEL) ? 128 : 0;
@@ -803,6 +815,27 @@ function isInvalidKeyMessage(message){
 }
 
 /**
+ * Detecta si un error de la API de Gemini es un pico transitorio de
+ * sobrecarga (no un problema real de la idea, la key o la cuenta), y por lo
+ * tanto vale la pena reintentar una vez antes de mostrárselo al usuario.
+ *
+ * Shape real observado en la API para este caso: HTTP 429 (RESOURCE_EXHAUSTED,
+ * cuota) o 503 (UNAVAILABLE, "The model is overloaded" / "currently
+ * experiencing high demand"), con body {"error":{"code","message","status"}}.
+ *
+ * @param {number} httpStatus - Status HTTP de la respuesta de Gemini.
+ * @param {string} upstreamMessage - error.message del body de Gemini.
+ * @param {string} [upstreamStatus] - error.status del body de Gemini (ej "UNAVAILABLE").
+ * @returns {boolean}
+ */
+function isTransientOverloadError(httpStatus, upstreamMessage, upstreamStatus){
+  if(httpStatus === 429 || httpStatus === 503) return true;
+  if(upstreamStatus === 'UNAVAILABLE' || upstreamStatus === 'RESOURCE_EXHAUSTED') return true;
+  const m = (upstreamMessage || '').toLowerCase();
+  return m.includes('overloaded') || m.includes('high demand') || m.includes('currently unavailable');
+}
+
+/**
  * Llama directamente a la Gemini API desde el navegador para convertir una
  * idea en historias de usuario. Reemplaza al antiguo POST /api/generate-stories
  * de server.js: ya no hay backend propio en el flujo de generación.
@@ -839,10 +872,12 @@ async function generateStoriesFromIdea(ideaText, apiKey){
 
   if(!response.ok){
     let upstreamMessage = `Gemini respondió con status ${response.status}.`;
+    let upstreamStatus;
     try{
       const errBody = await response.json();
       if(errBody && errBody.error && errBody.error.message){
         upstreamMessage = errBody.error.message;
+        upstreamStatus = errBody.error.status;
       }
     }catch(_parseErr){
       // el body de error no era JSON, seguimos con el mensaje genérico
@@ -850,7 +885,12 @@ async function generateStoriesFromIdea(ideaText, apiKey){
     if(response.status === 400 && isInvalidKeyMessage(upstreamMessage)){
       throw new Error('Tu API key no es válida, revisala en el panel de configuración.');
     }
-    throw new Error('La API de Gemini devolvió un error: ' + upstreamMessage);
+    const err = new Error('La API de Gemini devolvió un error: ' + upstreamMessage);
+    // Marca de error transitorio: la usa generateStoriesFromIdeaWithRetry
+    // para decidir si vale la pena reintentar antes de mostrarle esto al
+    // usuario (ver esa función más abajo para el porqué del retry).
+    err.isTransientOverload = isTransientOverloadError(response.status, upstreamMessage, upstreamStatus);
+    throw err;
   }
 
   const geminiBody = await response.json();
@@ -887,6 +927,43 @@ async function generateStoriesFromIdea(ideaText, apiKey){
   return stories;
 }
 
+/**
+ * Espera de reintento ante sobrecarga transitoria de Gemini. Fija en ~3s:
+ * ni tan corta que golpee a Gemini de nuevo en pleno pico, ni tan larga que
+ * el usuario piense que la UI se colgó (el botón "Generar historias" sigue
+ * deshabilitado y en estado "generando" durante toda esta espera).
+ */
+const OVERLOAD_RETRY_DELAY_MS = 3000;
+
+/**
+ * Envuelve a generateStoriesFromIdea con UN reintento automático cuando el
+ * primer intento falla por sobrecarga transitoria de Gemini (429/503,
+ * "overloaded"/"high demand"/"currently unavailable": ver
+ * isTransientOverloadError). Este tipo de error suele resolverse solo en
+ * pocos segundos, así que reintentar una vez evita mostrarle al usuario un
+ * error que probablemente ya no aplica. Si el reintento también falla (sea
+ * por sobrecarga otra vez o por cualquier otro motivo), se deja propagar el
+ * error tal cual para que el caller lo muestre curado como siempre. Nunca
+ * reintenta más de una vez, para no encolar al usuario ni gastar cuota de
+ * más ante un problema que no es transitorio.
+ *
+ * @param {string} ideaText - Idea ya validada (no vacía).
+ * @param {string} apiKey - API key de Gemini de la persona.
+ * @returns {Promise<Array<object>>} Array de historias de usuario.
+ * @throws {Error} El mismo tipo de error curado que generateStoriesFromIdea.
+ */
+async function generateStoriesFromIdeaWithRetry(ideaText, apiKey){
+  try{
+    return await generateStoriesFromIdea(ideaText, apiKey);
+  }catch(err){
+    if(!err.isTransientOverload){
+      throw err;
+    }
+    await new Promise(resolve => setTimeout(resolve, OVERLOAD_RETRY_DELAY_MS));
+    return await generateStoriesFromIdea(ideaText, apiKey);
+  }
+}
+
 const generateBtn = document.getElementById('generateBtn');
 
 generateBtn.addEventListener('click', async () => {
@@ -906,7 +983,7 @@ generateBtn.addEventListener('click', async () => {
   setStatus('Generando historias...');
 
   try{
-    const newStories = await generateStoriesFromIdea(idea, apiKey);
+    const newStories = await generateStoriesFromIdeaWithRetry(idea, apiKey);
     if(!Array.isArray(newStories) || newStories.length === 0){
       throw new Error('No se generaron historias, probá reformular la idea.');
     }

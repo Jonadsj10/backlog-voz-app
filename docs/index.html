@@ -51,6 +51,7 @@
     animation: fadeIn .6s ease;
   }
   @keyframes fadeIn{ from{opacity:0; transform: translateY(6px);} to{opacity:1; transform:none;} }
+  .title-row{ display:flex; align-items:center; gap:10px; }
   h1{
     font-family: var(--font-display);
     font-weight: 600;
@@ -65,6 +66,7 @@
     font-size: 14.5px;
     max-width: 46ch;
   }
+  .header-right{ display:flex; flex-direction:column; align-items:flex-end; gap:10px; }
   .counter{
     font-family: var(--font-mono);
     font-size: 13px;
@@ -73,6 +75,21 @@
     white-space: nowrap;
   }
   .counter strong{ color: #FBF6EC; font-size: 20px; display:block; font-weight:500; }
+  .apikey-btn{
+    display:flex; align-items:center; gap:6px;
+    background: transparent;
+    color: #C8BFAF;
+    border: 1px solid rgba(255,255,255,0.15);
+    font-family: var(--font-body);
+    font-size: 12.5px;
+    padding: 7px 12px;
+    border-radius: 8px;
+    cursor:pointer;
+    white-space: nowrap;
+  }
+  .apikey-btn:hover{ border-color: rgba(255,255,255,0.35); color:#fff; }
+  .apikey-btn svg{ width:14px; height:14px; }
+  .apikey-btn.missing{ border-color: var(--amber); color: var(--amber); }
 
   /* ---- Capture panel ---- */
   .capture{
@@ -256,6 +273,55 @@
   }
 
   footer{ margin-top: 30px; text-align:center; color:#7A7060; font-size:12px; }
+
+  /* ---- API key modal ---- */
+  .modal-overlay{
+    position: fixed; inset:0; background: rgba(20,17,14,0.65);
+    display:flex; align-items:center; justify-content:center;
+    padding: 20px; z-index: 100;
+  }
+  .modal-overlay[hidden]{ display:none; }
+  .modal-box{
+    background: #FBF6EC;
+    color: var(--ink);
+    border-radius: 14px;
+    max-width: 440px;
+    width:100%;
+    padding: 26px 26px 22px;
+    box-shadow: 0 30px 60px -20px rgba(0,0,0,0.6);
+  }
+  .modal-box h3{
+    font-family: var(--font-display); font-weight:600; font-size: 20px;
+    margin: 0 0 8px; color: var(--ink);
+  }
+  .modal-box .modal-msg{
+    font-size: 13.5px; color: var(--ink-soft); margin: 0 0 16px; line-height:1.5;
+  }
+  .modal-box .modal-msg.attention{
+    color: var(--coral); font-weight:500;
+  }
+  .key-input-row{ display:flex; gap:8px; margin-bottom: 10px; }
+  .key-input-row input{
+    flex:1; border:1px solid var(--card-edge); border-radius:8px; padding: 10px 12px;
+    font-family: var(--font-mono); font-size: 13.5px; color: var(--ink); background:#fff;
+  }
+  .key-input-row input:focus{ outline:none; border-color: var(--accent-blue); }
+  .toggle-visibility{
+    background: transparent; border: 1px solid var(--card-edge); border-radius:8px;
+    padding: 0 12px; cursor:pointer; font-family: var(--font-mono); font-size: 12px;
+    color: var(--ink-soft);
+  }
+  .toggle-visibility:hover{ border-color: var(--accent-blue); color: var(--accent-blue); }
+  .modal-help{ font-size: 12.5px; color: var(--ink-soft); margin: 4px 0 18px; line-height:1.5; }
+  .modal-help a{ color: var(--accent-blue); text-decoration: underline; }
+  .modal-privacy{
+    font-size: 12px; color: var(--green); background: rgba(76,122,91,0.09);
+    border: 1px solid rgba(76,122,91,0.25); padding: 8px 10px; border-radius: 6px;
+    margin-bottom: 18px; line-height:1.4;
+  }
+  .modal-actions{ display:flex; justify-content:flex-end; gap:10px; }
+  .modal-status{ font-size: 12.5px; min-height: 16px; margin-top: 8px; color: var(--green); }
+  .modal-status.error{ color: var(--coral); }
 </style>
 </head>
 <body>
@@ -263,10 +329,20 @@
 
   <header>
     <div>
-      <h1>Backlog por voz</h1>
+      <div class="title-row">
+        <h1>Backlog por voz</h1>
+      </div>
       <p>Contá tu idea en voz alta y armamos las historias de usuario con formato ágil, criterios de aceptación y estimación.</p>
     </div>
-    <div class="counter"><strong id="storyCount">0</strong>historias en el backlog</div>
+    <div class="header-right">
+      <div class="counter"><strong id="storyCount">0</strong>historias en el backlog</div>
+      <button class="apikey-btn" id="apiKeyBtn" title="Configurar tu API key de Gemini">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0L19 4m-3.5 3.5L19 11"/>
+        </svg>
+        <span id="apiKeyBtnLabel">Configurar API key</span>
+      </button>
+    </div>
   </header>
 
   <div class="capture">
@@ -311,7 +387,128 @@
   <footer>Los datos se guardan en tu navegador entre sesiones. Exportá seguido a Excel para no perder el trabajo.</footer>
 </div>
 
+<!-- ---- API key modal ---- -->
+<div class="modal-overlay" id="apiKeyModal" hidden>
+  <div class="modal-box">
+    <h3>Configurar API key de Gemini</h3>
+    <p class="modal-msg" id="apiKeyModalMsg">Pegá tu API key de Gemini para poder generar historias.</p>
+    <div class="key-input-row">
+      <input type="password" id="apiKeyInput" placeholder="AIza..." autocomplete="off">
+      <button class="toggle-visibility" id="toggleKeyVisibility" type="button">Mostrar</button>
+    </div>
+    <p class="modal-help">
+      ¿No tenés una? <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Conseguí tu API key gratis acá</a>.
+    </p>
+    <p class="modal-privacy">
+      Tu key se guarda solo en este navegador, en este dispositivo. Nadie más la ve.
+    </p>
+    <div class="modal-status" id="apiKeyModalStatus"></div>
+    <div class="modal-actions">
+      <button class="ghost" id="apiKeyCancelBtn" type="button">Cerrar</button>
+      <button class="primary" id="apiKeySaveBtn" type="button">Guardar</button>
+    </div>
+  </div>
+</div>
+
 <script>
+// ============================================================================
+// Configuración de la API key de Gemini (por-navegador, vía localStorage).
+//
+// Cada persona que abre este link pega SU PROPIA API key de Google AI Studio.
+// La key se guarda únicamente en localStorage de su navegador y viaja
+// directo desde su navegador a la API de Gemini (fetch client-side, más
+// abajo): esta app no tiene backend propio, así que la key nunca pasa por
+// ningún servidor de Strata. localStorage no está encriptado (cualquiera con
+// acceso físico al dispositivo y a las devtools podría leerlo), pero nunca
+// sale del navegador de la persona que la pegó.
+// ============================================================================
+const API_KEY_STORAGE_KEY = 'gemini-api-key';
+
+function getApiKey(){
+  try{
+    return (localStorage.getItem(API_KEY_STORAGE_KEY) || '').trim();
+  }catch(e){
+    return '';
+  }
+}
+
+function setApiKey(key){
+  try{
+    localStorage.setItem(API_KEY_STORAGE_KEY, key);
+  }catch(e){
+    console.error('No se pudo guardar la API key en este navegador', e);
+  }
+}
+
+const apiKeyModal = document.getElementById('apiKeyModal');
+const apiKeyModalMsg = document.getElementById('apiKeyModalMsg');
+const apiKeyModalStatus = document.getElementById('apiKeyModalStatus');
+const apiKeyInput = document.getElementById('apiKeyInput');
+const apiKeyBtn = document.getElementById('apiKeyBtn');
+const apiKeyBtnLabel = document.getElementById('apiKeyBtnLabel');
+const toggleKeyVisibility = document.getElementById('toggleKeyVisibility');
+
+function setModalStatus(msg, isError){
+  apiKeyModalStatus.textContent = msg || '';
+  apiKeyModalStatus.className = 'modal-status' + (isError ? ' error' : '');
+}
+
+/**
+ * Abre el panel de configuración de API key.
+ * @param {string} [message] - Mensaje a mostrar en el panel (ej. cuando se
+ *   abre automáticamente porque falta la key para generar historias).
+ * @param {boolean} [attention] - Si el mensaje debe resaltarse (falta la key).
+ */
+function openApiKeyModal(message, attention){
+  apiKeyModalMsg.textContent = message || 'Pegá tu API key de Gemini para poder generar historias.';
+  apiKeyModalMsg.className = 'modal-msg' + (attention ? ' attention' : '');
+  apiKeyInput.value = getApiKey();
+  apiKeyInput.type = 'password';
+  toggleKeyVisibility.textContent = 'Mostrar';
+  setModalStatus('');
+  apiKeyModal.hidden = false;
+  apiKeyInput.focus();
+}
+
+function closeApiKeyModal(){
+  apiKeyModal.hidden = true;
+}
+
+function refreshApiKeyButton(){
+  const hasKey = Boolean(getApiKey());
+  apiKeyBtn.classList.toggle('missing', !hasKey);
+  apiKeyBtnLabel.textContent = hasKey ? 'API key configurada' : 'Configurar API key';
+}
+
+apiKeyBtn.addEventListener('click', () => openApiKeyModal());
+document.getElementById('apiKeyCancelBtn').addEventListener('click', closeApiKeyModal);
+apiKeyModal.addEventListener('click', (e) => {
+  if(e.target === apiKeyModal){ closeApiKeyModal(); }
+});
+
+toggleKeyVisibility.addEventListener('click', () => {
+  const showing = apiKeyInput.type === 'text';
+  apiKeyInput.type = showing ? 'password' : 'text';
+  toggleKeyVisibility.textContent = showing ? 'Mostrar' : 'Ocultar';
+});
+
+document.getElementById('apiKeySaveBtn').addEventListener('click', () => {
+  const value = apiKeyInput.value.trim();
+  if(!value){
+    setModalStatus('Pegá una API key antes de guardar.', true);
+    return;
+  }
+  setApiKey(value);
+  refreshApiKeyButton();
+  setModalStatus('API key guardada en este navegador.');
+  setTimeout(closeApiKeyModal, 700);
+});
+
+refreshApiKeyButton();
+
+// ============================================================================
+// Resto de la app (tarjetas, voz, export, persistencia del backlog).
+// ============================================================================
 let stories = [];
 let nextIdNumber = 1;
 
@@ -525,35 +722,172 @@ document.getElementById('clearTranscriptBtn').addEventListener('click', () => {
   setStatus('');
 });
 
-// ---------- generation via Claude (server-side, /api/generate-stories) ----------
-const generateBtn = document.getElementById('generateBtn');
+// ============================================================================
+// Generación de historias: llamada DIRECTA desde el navegador a la Gemini
+// API (Generative Language API de Google), con la API key que la persona
+// pegó en el panel de configuración (localStorage, ver arriba).
+//
+// No hay backend propio en este flujo: GitHub Pages solo sirve este HTML
+// estático, así que la lógica que antes vivía en server.js (mismo prompt,
+// mismo generationConfig, mismo manejo de truncamiento por MAX_TOKENS) se
+// replica acá tal cual.
+// ============================================================================
+const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+const GEMINI_MODEL = 'gemini-flash-latest';
+const MAX_OUTPUT_TOKENS = 8192;
+// gemini-flash-latest no soporta razonamiento apagado del todo salvo con
+// thinkingBudget: 0 (ver nota histórica en server.js / README). Si alguna
+// vez se pinnea un modelo "-pro", ese modelo exige mínimo 128.
+const THINKING_BUDGET = /-pro/i.test(GEMINI_MODEL) ? 128 : 0;
 
-async function generateStories(ideaText){
-  let response;
-  try{
-    response = await fetch('/api/generate-stories', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ idea: ideaText })
-    });
-  }catch(networkErr){
-    throw new Error('No se pudo conectar con el servidor. Revisá que esté corriendo (npm start).');
+function buildSystemInstruction(){
+  return `Sos un Product Owner experto en metodologias agiles (Scrum/Kanban) que arma historias de usuario a partir de ideas dictadas por voz por un lider de equipo.
+
+Tarea: leer la idea y convertirla en una o mas historias de usuario completas.
+
+Reglas:
+- Si la idea combina mas de una funcionalidad o necesidad distinta, separala en historias de usuario independientes.
+- Cada historia debe tener: titulo corto (maximo 8 palabras), rol (quien necesita la funcionalidad, ej "usuario del equipo de ventas"), la funcionalidad deseada en pocas palabras, el beneficio o motivo, entre 2 y 5 criterios de aceptacion concretos y verificables, una estimacion en story points (Fibonacci: 1, 2, 3, 5, 8, 13, 21) y una prioridad (Alta, Media o Baja) segun el impacto que se desprende de la idea.
+- Los criterios de aceptacion son oraciones cortas y verificables, no un parrafo.
+- Respondes UNICAMENTE con JSON valido (sin texto adicional, sin markdown, sin bloques de codigo), con este formato exacto:
+[{"titulo":"...", "rol":"...", "quiero":"...", "paraQue":"...", "criterios":["...","..."], "puntos":5, "prioridad":"Media"}]`;
+}
+
+/**
+ * Extrae el texto de la respuesta de Gemini y le saca fences de markdown si
+ * vinieran, antes de parsearlo. Misma lógica que server.js.
+ *
+ * @param {object} geminiBody - Body JSON ya parseado de la respuesta de Gemini.
+ * @returns {{text: string, finishReason: string|null}}
+ * @throws {Error} Si la respuesta no trae candidatos o contenido de texto.
+ */
+function extractText(geminiBody){
+  const candidate = Array.isArray(geminiBody.candidates) ? geminiBody.candidates[0] : null;
+
+  if(!candidate){
+    const blockReason = geminiBody.promptFeedback && geminiBody.promptFeedback.blockReason;
+    throw new Error(
+      blockReason
+        ? `Gemini bloqueó la solicitud (motivo: ${blockReason}).`
+        : 'La respuesta de Gemini no trajo candidatos.'
+    );
   }
 
-  let body;
+  const finishReason = candidate.finishReason || null;
+  const parts = candidate.content && Array.isArray(candidate.content.parts) ? candidate.content.parts : [];
+  const block = parts.find(p => typeof p.text === 'string');
+  if(!block){
+    throw new Error(
+      `La respuesta de Gemini no trajo contenido de texto (finishReason: ${finishReason || 'desconocido'}).`
+    );
+  }
+
+  let text = block.text.trim();
+  if(text.startsWith('```')){
+    text = text.replace(/^```[a-zA-Z]*\n?/, '').replace(/```$/, '').trim();
+  }
+  return { text, finishReason };
+}
+
+/**
+ * Detecta si un mensaje de error de Gemini corresponde a una API key
+ * inválida, para poder mostrar un mensaje curado en vez del texto crudo.
+ *
+ * @param {string} message - Mensaje de error devuelto por la API de Gemini.
+ * @returns {boolean}
+ */
+function isInvalidKeyMessage(message){
+  if(!message) return false;
+  const m = message.toLowerCase();
+  return m.includes('api key not valid') || m.includes('api_key_invalid') || m.includes('api key expired');
+}
+
+/**
+ * Llama directamente a la Gemini API desde el navegador para convertir una
+ * idea en historias de usuario. Reemplaza al antiguo POST /api/generate-stories
+ * de server.js: ya no hay backend propio en el flujo de generación.
+ *
+ * @param {string} ideaText - Idea ya validada (no vacía).
+ * @param {string} apiKey - API key de Gemini de la persona, leída de localStorage.
+ * @returns {Promise<Array<object>>} Array de historias de usuario.
+ * @throws {Error} Con mensaje curado, apto para mostrar directo al usuario.
+ */
+async function generateStoriesFromIdea(ideaText, apiKey){
+  const url = `${GEMINI_API_BASE}/models/${GEMINI_MODEL}:generateContent`;
+
+  let response;
   try{
-    body = await response.json();
-  }catch(parseErr){
-    throw new Error('El servidor devolvió una respuesta inesperada.');
+    response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey,
+      },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: buildSystemInstruction() }] },
+        contents: [{ role: 'user', parts: [{ text: `Idea del usuario:\n${ideaText}` }] }],
+        generationConfig: {
+          maxOutputTokens: MAX_OUTPUT_TOKENS,
+          responseMimeType: 'application/json',
+          thinkingConfig: { thinkingBudget: THINKING_BUDGET },
+        },
+      }),
+    });
+  }catch(networkErr){
+    throw new Error('No se pudo conectar con la API de Gemini. Revisá tu conexión y probá de nuevo.');
   }
 
   if(!response.ok){
-    const message = (body && body.error && body.error.message) || 'Ocurrió un error generando las historias.';
-    throw new Error(message);
+    let upstreamMessage = `Gemini respondió con status ${response.status}.`;
+    try{
+      const errBody = await response.json();
+      if(errBody && errBody.error && errBody.error.message){
+        upstreamMessage = errBody.error.message;
+      }
+    }catch(_parseErr){
+      // el body de error no era JSON, seguimos con el mensaje genérico
+    }
+    if(response.status === 400 && isInvalidKeyMessage(upstreamMessage)){
+      throw new Error('Tu API key no es válida, revisala en el panel de configuración.');
+    }
+    throw new Error('La API de Gemini devolvió un error: ' + upstreamMessage);
   }
 
-  return body;
+  const geminiBody = await response.json();
+
+  let text, finishReason;
+  try{
+    const extracted = extractText(geminiBody);
+    text = extracted.text;
+    finishReason = extracted.finishReason;
+  }catch(extractErr){
+    throw new Error('La respuesta de Gemini no tuvo el formato esperado: ' + extractErr.message);
+  }
+
+  // Mismo fix que en server.js: si Gemini cortó la respuesta por exceder
+  // maxOutputTokens, el JSON queda a medio escribir. Se detecta ANTES de
+  // JSON.parse para dar un mensaje claro en vez del genérico "JSON inválido".
+  if(finishReason === 'MAX_TOKENS'){
+    throw new Error(
+      'La respuesta de Gemini se cortó por exceder el límite de tokens. Probá con una idea más corta o separá las historias en varios pedidos.'
+    );
+  }
+
+  let stories;
+  try{
+    stories = JSON.parse(text);
+  }catch(jsonErr){
+    throw new Error('No se pudo interpretar la respuesta como JSON válido. Probá reformular la idea.');
+  }
+
+  if(!Array.isArray(stories)){
+    throw new Error('La respuesta no fue un array de historias.');
+  }
+
+  return stories;
 }
+
+const generateBtn = document.getElementById('generateBtn');
 
 generateBtn.addEventListener('click', async () => {
   const idea = transcriptEl.value.trim();
@@ -561,11 +895,18 @@ generateBtn.addEventListener('click', async () => {
     setStatus('Contá o escribí la idea primero.', true);
     return;
   }
+
+  const apiKey = getApiKey();
+  if(!apiKey){
+    openApiKeyModal('Pegá tu API key de Gemini para poder generar historias.', true);
+    return;
+  }
+
   generateBtn.disabled = true;
   setStatus('Generando historias...');
 
   try{
-    const newStories = await generateStories(idea);
+    const newStories = await generateStoriesFromIdea(idea, apiKey);
     if(!Array.isArray(newStories) || newStories.length === 0){
       throw new Error('No se generaron historias, probá reformular la idea.');
     }

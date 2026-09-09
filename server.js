@@ -24,7 +24,24 @@ const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 // a mano cada vez que Google saca una versión nueva. Overrideable por env
 // var si en algún momento se quiere pinnear una versión específica.
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-flash-latest';
-const MAX_OUTPUT_TOKENS = 2000;
+// Los modelos Gemini 2.5 (flash y pro) gastan tokens de "thinking" (razonamiento interno)
+// del mismo presupuesto que maxOutputTokens, ANTES de escribir la respuesta final. Con
+// una idea que genera 3+ historias, ese razonamiento + el JSON de salida no entraban en
+// el límite viejo (2000) y la respuesta quedaba truncada a mitad del JSON (finishReason
+// MAX_TOKENS), de ahí el "No se pudo interpretar la respuesta como JSON válido".
+// Subimos el límite para dejar margen a varias historias con criterios de aceptación.
+// gemini-2.5-flash soporta hasta ~65536 tokens de salida; 8192 alcanza sobrado para un
+// puñado de historias y mantiene la respuesta acotada en costo/latencia.
+const MAX_OUTPUT_TOKENS = 8192;
+// Fuente: https://ai.google.dev/gemini-api/docs/generate-content/thinking (discovery
+// 2026-09-09). Esta app no necesita razonamiento, solo devuelve JSON estructurado, así
+// que lo desactivamos vía generationConfig.thinkingConfig.thinkingBudget.
+// gemini-2.5-flash acepta thinkingBudget=0 (lo desactiva del todo). gemini-2.5-pro NO lo
+// soporta: la API devuelve 400 "The model does not support setting thinking_budget to 0"
+// y exige mínimo 128. El default de esta app es gemini-2.5-flash, pero si en el futuro se
+// pinnea un modelo "pro" via GEMINI_MODEL, usamos el mínimo que Pro sí acepta (128) para
+// no romper la llamada.
+const THINKING_BUDGET = /-pro/i.test(GEMINI_MODEL) ? 128 : 0;
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -101,7 +118,10 @@ function buildUserContent(ideaText) {
  * fences de markdown (```json ... ```) si vinieran, antes de parsearlo.
  *
  * @param {object} geminiBody - Body JSON ya parseado de la respuesta de Gemini.
- * @returns {string} Texto plano, listo para JSON.parse.
+ * @returns {{text: string, finishReason: string|null}} Texto plano listo para
+ *   JSON.parse, junto con el finishReason del candidato (por ejemplo 'STOP' o
+ *   'MAX_TOKENS'), para que el caller pueda distinguir una respuesta completa
+ *   de una truncada por límite de tokens antes de intentar parsearla.
  * @throws {Error} Si la respuesta no trae candidatos o contenido de tipo texto
  *   (por ejemplo, si el prompt fue bloqueado por los filtros de seguridad).
  */
@@ -117,11 +137,12 @@ function extractText(geminiBody) {
     );
   }
 
+  const finishReason = candidate.finishReason || null;
   const parts = candidate.content && Array.isArray(candidate.content.parts) ? candidate.content.parts : [];
   const block = parts.find((p) => typeof p.text === 'string');
   if (!block) {
     throw new Error(
-      `La respuesta de Gemini no trajo contenido de texto (finishReason: ${candidate.finishReason || 'desconocido'}).`
+      `La respuesta de Gemini no trajo contenido de texto (finishReason: ${finishReason || 'desconocido'}).`
     );
   }
 
@@ -130,7 +151,7 @@ function extractText(geminiBody) {
   if (text.startsWith('```')) {
     text = text.replace(/^```[a-zA-Z]*\n?/, '').replace(/```$/, '').trim();
   }
-  return text;
+  return { text, finishReason };
 }
 
 /**
@@ -170,6 +191,7 @@ async function generateStoriesFromIdea(ideaText) {
         generationConfig: {
           maxOutputTokens: MAX_OUTPUT_TOKENS,
           responseMimeType: 'application/json',
+          thinkingConfig: { thinkingBudget: THINKING_BUDGET },
         },
       }),
     });
@@ -201,13 +223,30 @@ async function generateStoriesFromIdea(ideaText) {
   const geminiBody = await response.json();
 
   let text;
+  let finishReason;
   try {
-    text = extractText(geminiBody);
+    const extracted = extractText(geminiBody);
+    text = extracted.text;
+    finishReason = extracted.finishReason;
   } catch (extractErr) {
     log('ERROR', 'gemini_response_shape_error', { message: extractErr.message });
     const err = new Error('La respuesta de Gemini no tuvo el formato esperado: ' + extractErr.message);
     err.statusCode = 502;
     err.code = 'UPSTREAM_PARSE_ERROR';
+    throw err;
+  }
+
+  // Si Gemini cortó la respuesta por exceder maxOutputTokens, el texto queda con el JSON
+  // a medio escribir. Lo chequeamos ANTES de intentar JSON.parse: si no, el usuario final
+  // solo ve el mensaje genérico de "JSON inválido", que no explica qué pasó ni cómo
+  // evitarlo (idea más corta o dividida en varios pedidos).
+  if (finishReason === 'MAX_TOKENS') {
+    log('ERROR', 'gemini_response_truncated', { finishReason, maxOutputTokens: MAX_OUTPUT_TOKENS });
+    const err = new Error(
+      'La respuesta de Gemini se cortó por exceder el límite de tokens. Probá con una idea más corta o separá las historias en varios pedidos.'
+    );
+    err.statusCode = 502;
+    err.code = 'UPSTREAM_TRUNCATED';
     throw err;
   }
 

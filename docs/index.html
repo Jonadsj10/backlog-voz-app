@@ -8,19 +8,31 @@
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,500;0,600;1,500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
+  /* ============================================================
+     Paleta "SaaS profesional", inspirada en capturas de PM Scrum
+     (referencia visual interna de Strata, sin Figma/hex exactos):
+     fondo claro, acento indigo/violeta saturado, chips celeste/lavanda.
+     Ver nota de decisiones de diseño al pie del reporte de esta tarea.
+     ============================================================ */
   :root{
-    --board: #362E28;
-    --board-2: #2E2721;
-    --card: #FBF6EC;
-    --card-edge: #E9DEC7;
-    --ink: #2B2420;
-    --ink-soft: #6B5F52;
-    --accent-blue: #3D5A73;
-    --accent-blue-dark: #2C4356;
-    --green: #4C7A5B;
-    --amber: #C99A3E;
-    --coral: #C1543A;
-    --paper-line: rgba(43,36,32,0.08);
+    --bg: #F6F6FB;
+    --surface: #FFFFFF;
+    --border: #E3E1EC;
+    --border-soft: #ECEBF3;
+    --ink: #17151F;
+    --ink-soft: #635F72;
+    --ink-faint: #9C97AC;
+    --accent: #3D2A8C;
+    --accent-dark: #2E1A73;
+    --accent-soft-bg: #EEEAFC;
+    --sky-bg: #E8F1FE;
+    --sky-text: #2E1A73;
+    --green: #1E7F4F;
+    --green-bg: #E5F6ED;
+    --amber: #9A6B08;
+    --amber-bg: #FEF3D9;
+    --coral: #B3261E;
+    --coral-bg: #FBE7E5;
     --font-display: 'Fraunces', serif;
     --font-body: 'IBM Plex Sans', sans-serif;
     --font-mono: 'IBM Plex Mono', monospace;
@@ -29,11 +41,8 @@
   body{
     margin:0;
     font-family: var(--font-body);
-    color: var(--card);
-    background:
-      radial-gradient(ellipse at 20% -10%, rgba(255,255,255,0.05), transparent 55%),
-      radial-gradient(ellipse at 90% 10%, rgba(255,255,255,0.03), transparent 40%),
-      var(--board);
+    color: var(--ink);
+    background: var(--bg);
     min-height:100vh;
   }
   .shell{
@@ -47,39 +56,37 @@
     align-items:flex-end;
     gap: 24px;
     flex-wrap: wrap;
-    margin-bottom: 36px;
-    animation: fadeIn .6s ease;
+    margin-bottom: 32px;
   }
-  @keyframes fadeIn{ from{opacity:0; transform: translateY(6px);} to{opacity:1; transform:none;} }
   .title-row{ display:flex; align-items:center; gap:10px; }
   h1{
     font-family: var(--font-display);
     font-weight: 600;
-    font-size: clamp(28px, 4vw, 40px);
+    font-size: clamp(26px, 3.6vw, 34px);
     margin: 0 0 6px;
-    color: #FBF6EC;
+    color: var(--ink);
     letter-spacing: -0.01em;
   }
   header p{
     margin:0;
-    color: #B9AF9F;
-    font-size: 14.5px;
+    color: var(--ink-soft);
+    font-size: 14px;
     max-width: 46ch;
   }
   .header-right{ display:flex; flex-direction:column; align-items:flex-end; gap:10px; }
   .counter{
     font-family: var(--font-mono);
-    font-size: 13px;
-    color: #B9AF9F;
+    font-size: 12.5px;
+    color: var(--ink-soft);
     text-align:right;
     white-space: nowrap;
   }
-  .counter strong{ color: #FBF6EC; font-size: 20px; display:block; font-weight:500; }
+  .counter strong{ color: var(--accent); font-size: 20px; display:block; font-weight:600; }
   .apikey-btn{
     display:flex; align-items:center; gap:6px;
-    background: transparent;
-    color: #C8BFAF;
-    border: 1px solid rgba(255,255,255,0.15);
+    background: var(--surface);
+    color: var(--ink-soft);
+    border: 1px solid var(--border);
     font-family: var(--font-body);
     font-size: 12.5px;
     padding: 7px 12px;
@@ -87,206 +94,251 @@
     cursor:pointer;
     white-space: nowrap;
   }
-  .apikey-btn:hover{ border-color: rgba(255,255,255,0.35); color:#fff; }
+  .apikey-btn:hover{ border-color: var(--accent); color: var(--accent); }
   .apikey-btn svg{ width:14px; height:14px; }
-  .apikey-btn.missing{ border-color: var(--amber); color: var(--amber); }
+  .apikey-btn.missing{ border-color: var(--amber); color: var(--amber); background: var(--amber-bg); }
 
   /* ---- Capture panel ---- */
   .capture{
-    background: linear-gradient(180deg, #423A32, #362E28);
-    border: 1px solid rgba(255,255,255,0.06);
+    background: var(--surface);
+    border: 1px solid var(--border);
     border-radius: 14px;
-    padding: 28px;
+    padding: 26px;
     display: grid;
     grid-template-columns: auto 1fr;
     gap: 26px;
     align-items: start;
-    margin-bottom: 44px;
-    box-shadow: 0 20px 40px -20px rgba(0,0,0,0.5);
+    margin-bottom: 40px;
   }
   @media (max-width: 720px){ .capture{ grid-template-columns: 1fr; justify-items:center; text-align:center; } }
 
   .mic-wrap{ display:flex; flex-direction:column; align-items:center; gap:10px; }
   .mic-btn{
     position:relative;
-    width: 84px; height: 84px;
+    width: 76px; height: 76px;
     border-radius: 50%;
     border: none;
     cursor:pointer;
-    background: var(--coral);
-    color: #FBF6EC;
+    background: var(--accent);
+    color: #fff;
     display:flex; align-items:center; justify-content:center;
     transition: transform .15s ease, background .2s ease;
   }
-  .mic-btn:hover{ transform: scale(1.04); }
+  .mic-btn:hover{ transform: scale(1.04); background: var(--accent-dark); }
   .mic-btn:active{ transform: scale(0.97); }
-  .mic-btn.listening{ background: var(--accent-blue); }
+  .mic-btn.listening{ background: var(--coral); }
   .mic-btn.listening::before,
   .mic-btn.listening::after{
     content:"";
     position:absolute;
     inset:0;
     border-radius:50%;
-    border: 2px solid var(--accent-blue);
+    border: 2px solid var(--coral);
     animation: ring 1.6s ease-out infinite;
   }
   .mic-btn.listening::after{ animation-delay: .5s; }
   @keyframes ring{ 0%{ transform:scale(1); opacity:.7;} 100%{ transform:scale(1.7); opacity:0;} }
-  .mic-btn svg{ width: 30px; height:30px; }
-  .mic-label{ font-size: 12.5px; color:#B9AF9F; font-family: var(--font-mono); min-height: 16px; }
+  .mic-btn svg{ width: 28px; height:28px; }
+  .mic-label{ font-size: 12px; color: var(--ink-soft); font-family: var(--font-mono); min-height: 16px; }
 
   .transcript-col{ display:flex; flex-direction:column; gap:10px; width:100%; }
   .transcript-col label{
-    font-family: var(--font-mono); font-size: 11.5px; letter-spacing: .03em;
-    color:#9A8F80;
+    font-family: var(--font-mono); font-size: 11px; letter-spacing: .04em; text-transform:uppercase;
+    color: var(--ink-faint);
   }
   textarea#transcript{
     width:100%;
     min-height: 92px;
     resize: vertical;
-    background: #2C2620;
-    border: 1px solid rgba(255,255,255,0.08);
-    color: #F1EADB;
+    background: #FAFAFC;
+    border: 1px solid var(--border);
+    color: var(--ink);
     font-family: var(--font-body);
     font-size: 15px;
     line-height: 1.5;
     border-radius: 8px;
     padding: 12px 14px;
   }
-  textarea#transcript:focus{ outline: 1.5px solid var(--accent-blue); }
+  textarea#transcript:focus{ outline:none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft-bg); }
   .capture-actions{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
   button.primary{
-    background: var(--accent-blue);
-    color: #FBF6EC;
+    background: var(--accent);
+    color: #fff;
     border: none;
     font-family: var(--font-body);
-    font-weight: 500;
-    font-size: 14.5px;
+    font-weight: 600;
+    font-size: 14px;
     padding: 11px 20px;
     border-radius: 8px;
     cursor:pointer;
     transition: background .2s ease;
   }
-  button.primary:hover{ background: var(--accent-blue-dark); }
+  button.primary:hover{ background: var(--accent-dark); }
   button.primary:disabled{ opacity:.5; cursor:default; }
   button.ghost{
-    background: transparent;
-    color: #C8BFAF;
-    border: 1px solid rgba(255,255,255,0.15);
+    background: var(--surface);
+    color: var(--ink-soft);
+    border: 1px solid var(--border);
     font-family: var(--font-body);
     font-size: 13.5px;
     padding: 10px 16px;
     border-radius: 8px;
     cursor:pointer;
   }
-  button.ghost:hover{ border-color: rgba(255,255,255,0.35); color:#fff; }
-  .status-line{ font-size: 13px; color:#B9AF9F; min-height: 18px; }
+  button.ghost:hover{ border-color: var(--accent); color: var(--accent); }
+  .status-line{ font-size: 13px; color: var(--ink-soft); min-height: 18px; }
   .status-line.error{ color: var(--coral); }
   .support-warning{
-    font-size: 12.5px; color:#C99A3E; background: rgba(201,154,62,0.1);
-    border: 1px solid rgba(201,154,62,0.3); padding: 8px 12px; border-radius: 6px;
+    font-size: 12.5px; color: var(--amber); background: var(--amber-bg);
+    border: 1px solid #F3DDA0; padding: 8px 12px; border-radius: 6px;
   }
 
   /* ---- Selector de tipo de historia (HU / HU AI) ---- */
   .type-toggle{
-    display:inline-flex; border:1px solid rgba(255,255,255,0.15); border-radius:8px;
-    overflow:hidden; margin-bottom:2px;
+    display:inline-flex; border:1px solid var(--border); border-radius:8px;
+    overflow:hidden; margin-bottom:2px; background: var(--surface);
   }
   .type-toggle-btn{
-    background:transparent; color:#C8BFAF; border:none; font-family: var(--font-body);
-    font-size:12.5px; font-weight:500; padding:7px 14px; cursor:pointer;
+    background:transparent; color: var(--ink-soft); border:none; font-family: var(--font-body);
+    font-size:12.5px; font-weight:600; padding:7px 14px; cursor:pointer;
     transition: background .15s ease, color .15s ease;
   }
-  .type-toggle-btn + .type-toggle-btn{ border-left:1px solid rgba(255,255,255,0.15); }
-  .type-toggle-btn.active{ background: var(--accent-blue); color:#FBF6EC; }
-  .type-toggle-btn:hover:not(.active){ color:#fff; }
-  .type-toggle-help{ font-size: 11.5px; color:#9A8F80; margin: 4px 0 0; }
+  .type-toggle-btn + .type-toggle-btn{ border-left:1px solid var(--border); }
+  .type-toggle-btn.active{ background: var(--accent); color:#fff; }
+  .type-toggle-btn:hover:not(.active){ color: var(--accent); }
+  .type-toggle-help{ font-size: 11.5px; color: var(--ink-faint); margin: 4px 0 0; }
 
   /* ---- Results ---- */
   .results-head{
     display:flex; justify-content:space-between; align-items:center;
-    margin-bottom: 20px; flex-wrap:wrap; gap:12px;
+    margin-bottom: 16px; flex-wrap:wrap; gap:12px;
   }
   .results-head h2{
-    font-family: var(--font-display); font-weight:600; font-size: 20px;
-    color:#FBF6EC; margin:0;
+    font-family: var(--font-display); font-weight:600; font-size: 19px;
+    color: var(--ink); margin:0;
   }
   .results-actions{ display:flex; gap:10px; }
 
+  /* ---- Backlog: lista compacta de filas (reemplaza el grid de tarjetas) ---- */
   .grid{
-    display:grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: 26px 22px;
+    display:flex;
+    flex-direction: column;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
   }
-  .card{
-    position:relative;
-    background: var(--card);
-    color: var(--ink);
-    border-radius: 3px;
-    padding: 22px 18px 16px;
-    box-shadow: 0 14px 26px -14px rgba(0,0,0,0.55), 0 2px 0 var(--card-edge);
-    border: 1px solid var(--card-edge);
+  .row-item{
+    display:flex; align-items:center; gap:12px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-soft);
+    cursor: pointer;
+    transition: background .12s ease;
   }
-  .card:nth-child(3n+1){ transform: rotate(-0.6deg); }
-  .card:nth-child(3n+2){ transform: rotate(0.5deg); }
-  .card:nth-child(3n+3){ transform: rotate(-0.3deg); }
-  .card.agentica{
-    grid-column: span 2;
-    font-size: 13px;
+  .row-item:last-child{ border-bottom:none; }
+  .row-item:hover{ background: var(--accent-soft-bg); }
+  .row-title{
+    flex:1; min-width:0;
+    font-weight:600; font-size:14px; color: var(--ink);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
   }
-  @media (max-width: 720px){ .card.agentica{ grid-column: span 1; } }
-  .card.agentica .field{ margin-bottom: 7px; }
-  .card.agentica .field label{ font-size: 10px; }
-  .card.agentica .field textarea, .card.agentica .field input[type=text]{
-    font-size: 12.5px; padding: 5px 7px;
+  .row-right{ display:flex; align-items:center; gap:8px; flex-shrink:0; }
+  .row-delete{
+    background:none; border:none; cursor:pointer; color: var(--ink-faint);
+    padding:5px; border-radius:6px; display:flex; align-items:center; justify-content:center;
   }
-  .pin{
-    position:absolute; top:-9px; left:50%; transform: translateX(-50%);
-    width:16px; height:16px; border-radius:50%;
-    box-shadow: 0 3px 4px rgba(0,0,0,0.35);
-    border: 2px solid rgba(255,255,255,0.5);
+  .row-delete:hover{ color: var(--coral); background: var(--coral-bg); }
+  .row-delete svg{ width:15px; height:15px; }
+  @media (max-width: 620px){
+    .row-item{ flex-wrap: wrap; }
+    .row-title{ order:3; flex-basis:100%; white-space:normal; }
   }
-  .pin.alta{ background: var(--coral); }
-  .pin.media{ background: var(--amber); }
-  .pin.baja{ background: var(--green); }
 
-  .card-id{
-    font-family: var(--font-mono); font-size: 11px; color: var(--ink-soft);
-    letter-spacing: .02em; margin-bottom: 6px; display:flex; justify-content:space-between; align-items:center;
+  /* ---- Pills / badges (reemplazan al "pin" sobre tarjeta rotada) ---- */
+  .pill{
+    display:inline-flex; align-items:center; flex-shrink:0;
+    font-family: var(--font-mono); font-size:11px; font-weight:600; letter-spacing:.02em;
+    padding: 3px 9px; border-radius:12px; white-space:nowrap;
   }
-  .delete-btn{
-    background:none; border:none; color: var(--ink-soft); cursor:pointer;
-    font-size: 13px; font-family: var(--font-mono); padding:2px 4px;
-  }
-  .delete-btn:hover{ color: var(--coral); }
+  .pill-id{ background: var(--sky-bg); color: var(--sky-text); }
+  .pill-type{ background: var(--accent-soft-bg); color: var(--accent-dark); text-transform:uppercase; font-size:10px; }
+  .pill-points{ background: #F0F0F5; color: var(--ink-soft); }
+  .pill-priority.alta{ background: var(--coral-bg); color: var(--coral); }
+  .pill-priority.media{ background: var(--amber-bg); color: var(--amber); }
+  .pill-priority.baja{ background: var(--green-bg); color: var(--green); }
 
-  .type-badge{
-    font-family: var(--font-mono); font-size:9.5px; letter-spacing:.04em;
-    padding:2px 6px; border-radius:4px; text-transform:uppercase; margin-left:8px;
+  .empty-state{
+    text-align:center;
+    padding: 60px 20px;
+    color: var(--ink-faint);
+    font-size: 14px;
+    background: var(--surface);
+    border: 1px dashed var(--border);
+    border-radius: 10px;
   }
-  .type-badge.humana{ background: rgba(61,90,115,0.12); color: var(--accent-blue-dark); }
-  .type-badge.agentica{ background: rgba(76,122,91,0.14); color: var(--green); }
+
+  footer{ margin-top: 30px; text-align:center; color: var(--ink-faint); font-size:12px; }
+
+  /* ============================================================
+     Panel de detalle (drawer lateral): se abre al hacer click en una
+     fila de la lista y muestra/edita todos los campos de esa historia.
+     ============================================================ */
+  .drawer-overlay{
+    position: fixed; inset:0; background: rgba(23,21,31,0.4);
+    z-index: 150;
+  }
+  .drawer-overlay[hidden]{ display:none; }
+  .drawer{
+    position: fixed; top:0; right:0; bottom:0;
+    width: 520px; max-width: 94vw;
+    background: var(--surface);
+    z-index: 200;
+    box-shadow: -4px 0 24px rgba(0,0,0,0.14);
+    display:flex; flex-direction:column;
+  }
+  .drawer[hidden]{ display:none; }
+  .drawer-header{
+    display:flex; align-items:center; justify-content:space-between;
+    padding: 16px 18px; border-bottom: 1px solid var(--border); flex-shrink:0;
+  }
+  .drawer-header-pills{ display:flex; align-items:center; gap:8px; }
+  .btn-icon{
+    background:none; border:none; cursor:pointer; color: var(--ink-soft);
+    width:30px; height:30px; border-radius:6px;
+    display:flex; align-items:center; justify-content:center; font-size:16px;
+  }
+  .btn-icon:hover{ background: var(--border-soft); color: var(--ink); }
+  .drawer-body{ flex:1; overflow-y:auto; padding: 22px; }
+
+  .drawer-title-input{
+    width:100%; border:none; background:transparent; font-family: var(--font-display);
+    font-weight: 600; font-size: 20px; color: var(--ink); padding: 0 0 10px;
+    border-bottom: 1px solid var(--border); margin-bottom: 16px;
+  }
+  .drawer-title-input:focus{ outline:none; border-bottom-color: var(--accent); }
 
   .subgroup{
-    border:1px dashed var(--paper-line); border-radius:6px; padding:8px 10px; margin-bottom:10px;
+    border:1px solid var(--border-soft); background:#FBFBFD; border-radius:8px;
+    padding:14px; margin-bottom:16px;
   }
   .subgroup-title{
-    font-family: var(--font-mono); font-size:10px; color: var(--ink-soft);
-    text-transform: uppercase; letter-spacing:.05em; margin-bottom:6px;
+    font-family: var(--font-mono); font-size:10.5px; color: var(--accent);
+    text-transform: uppercase; letter-spacing:.05em; margin-bottom:10px; font-weight:600;
   }
   .subgroup .field:last-child{ margin-bottom:0; }
 
-  .empty-hint{ font-size:12px; color: var(--ink-soft); font-style:italic; margin-bottom:6px; }
+  .empty-hint{ font-size:12px; color: var(--ink-faint); font-style:italic; margin-bottom:6px; }
 
-  .dod-item{ display:flex; align-items:flex-start; gap:6px; margin-bottom:5px; }
-  .dod-item input[type=checkbox]{ margin-top:9px; flex-shrink:0; accent-color: var(--green); }
+  .dod-item{ display:flex; align-items:flex-start; gap:6px; margin-bottom:6px; }
+  .dod-item input[type=checkbox]{ margin-top:9px; flex-shrink:0; accent-color: var(--accent); }
   .dod-item input[type=text]{ flex:1; }
 
   .criterio-block{
-    border:1px dashed var(--paper-line); border-radius:6px; padding:8px; margin-bottom:8px;
+    border:1px solid var(--border-soft); background:#FBFBFD; border-radius:8px;
+    padding:10px; margin-bottom:10px;
   }
   .criterio-block .criterio-head{
-    display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;
+    display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;
   }
   .criterio-block .criterio-num{
     font-family: var(--font-mono); font-size:10px; color: var(--ink-soft); text-transform:uppercase;
@@ -295,65 +347,51 @@
   .remove-btn, .add-btn{
     background:none; border:none; cursor:pointer; font-family: var(--font-mono); font-size:11px;
   }
-  .remove-btn{ color: var(--ink-soft); padding:2px 4px; flex-shrink:0; }
+  .remove-btn{ color: var(--ink-faint); padding:2px 4px; flex-shrink:0; }
   .remove-btn:hover{ color: var(--coral); }
-  .add-btn{ color: var(--accent-blue); padding:3px 0; margin-top:2px; }
+  .add-btn{ color: var(--accent); padding:3px 0; margin-top:2px; }
   .add-btn:hover{ text-decoration: underline; }
 
-  .card input.title{
-    width:100%; border:none; background:transparent; font-family: var(--font-display);
-    font-weight: 600; font-size: 18px; color: var(--ink); padding: 0 0 8px;
-    border-bottom: 1px solid var(--paper-line); margin-bottom: 10px;
-  }
-  .card input.title:focus{ outline:none; border-bottom-color: var(--accent-blue); }
-
-  .field{ margin-bottom: 9px; }
+  .field{ margin-bottom: 14px; }
   .field label{
-    display:block; font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-soft);
-    text-transform: none; margin-bottom: 3px;
+    display:block; font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-faint);
+    text-transform: uppercase; letter-spacing:.03em; margin-bottom: 5px;
   }
   .field textarea, .field input[type=text]{
-    width:100%; border:1px solid transparent; background: rgba(43,36,32,0.03);
-    border-radius: 5px; padding: 6px 8px; font-family: var(--font-body); font-size: 13.5px;
-    color: var(--ink); resize: vertical; line-height:1.4;
+    width:100%; border:1px solid var(--border); background: #FAFAFC;
+    border-radius: 6px; padding: 8px 10px; font-family: var(--font-body); font-size: 13.5px;
+    color: var(--ink); resize: vertical; line-height:1.5;
   }
-  .field textarea:focus, .field input[type=text]:focus{ outline:none; border-color: var(--accent-blue); background:#fff; }
+  .field textarea:focus, .field input[type=text]:focus{
+    outline:none; border-color: var(--accent); background:#fff;
+    box-shadow: 0 0 0 3px var(--accent-soft-bg);
+  }
   .field textarea.criteria{ min-height: 66px; }
 
-  .meta-row{ display:flex; gap:10px; margin-top: 12px; }
+  .meta-row{ display:flex; gap:10px; margin-top: 4px; }
   .meta-row .field{ flex:1; margin-bottom:0; }
   .meta-row select{
-    width:100%; font-family: var(--font-mono); font-size: 12.5px; padding: 6px 6px;
-    border-radius: 5px; border: 1px solid var(--card-edge); background:#fff; color: var(--ink);
+    width:100%; font-family: var(--font-mono); font-size: 12.5px; padding: 7px 8px;
+    border-radius: 6px; border: 1px solid var(--border); background:#fff; color: var(--ink);
   }
-
-  .empty-state{
-    grid-column: 1/-1;
-    text-align:center;
-    padding: 60px 20px;
-    color: #9A8F80;
-    font-size: 14.5px;
-    border: 1px dashed rgba(255,255,255,0.15);
-    border-radius: 12px;
-  }
-
-  footer{ margin-top: 30px; text-align:center; color:#7A7060; font-size:12px; }
+  .meta-row select:focus{ outline:none; border-color: var(--accent); }
 
   /* ---- API key modal ---- */
   .modal-overlay{
-    position: fixed; inset:0; background: rgba(20,17,14,0.65);
+    position: fixed; inset:0; background: rgba(23,21,31,0.45);
     display:flex; align-items:center; justify-content:center;
     padding: 20px; z-index: 100;
   }
   .modal-overlay[hidden]{ display:none; }
   .modal-box{
-    background: #FBF6EC;
+    background: var(--surface);
     color: var(--ink);
     border-radius: 14px;
     max-width: 440px;
     width:100%;
     padding: 26px 26px 22px;
-    box-shadow: 0 30px 60px -20px rgba(0,0,0,0.6);
+    border: 1px solid var(--border);
+    box-shadow: 0 24px 48px -20px rgba(23,21,31,0.35);
   }
   .modal-box h3{
     font-family: var(--font-display); font-weight:600; font-size: 20px;
@@ -363,25 +401,25 @@
     font-size: 13.5px; color: var(--ink-soft); margin: 0 0 16px; line-height:1.5;
   }
   .modal-box .modal-msg.attention{
-    color: var(--coral); font-weight:500;
+    color: var(--coral); font-weight:600;
   }
   .key-input-row{ display:flex; gap:8px; margin-bottom: 10px; }
   .key-input-row input{
-    flex:1; border:1px solid var(--card-edge); border-radius:8px; padding: 10px 12px;
-    font-family: var(--font-mono); font-size: 13.5px; color: var(--ink); background:#fff;
+    flex:1; border:1px solid var(--border); border-radius:8px; padding: 10px 12px;
+    font-family: var(--font-mono); font-size: 13.5px; color: var(--ink); background:#FAFAFC;
   }
-  .key-input-row input:focus{ outline:none; border-color: var(--accent-blue); }
+  .key-input-row input:focus{ outline:none; border-color: var(--accent); }
   .toggle-visibility{
-    background: transparent; border: 1px solid var(--card-edge); border-radius:8px;
+    background: var(--surface); border: 1px solid var(--border); border-radius:8px;
     padding: 0 12px; cursor:pointer; font-family: var(--font-mono); font-size: 12px;
     color: var(--ink-soft);
   }
-  .toggle-visibility:hover{ border-color: var(--accent-blue); color: var(--accent-blue); }
+  .toggle-visibility:hover{ border-color: var(--accent); color: var(--accent); }
   .modal-help{ font-size: 12.5px; color: var(--ink-soft); margin: 4px 0 18px; line-height:1.5; }
-  .modal-help a{ color: var(--accent-blue); text-decoration: underline; }
+  .modal-help a{ color: var(--accent); text-decoration: underline; }
   .modal-privacy{
-    font-size: 12px; color: var(--green); background: rgba(76,122,91,0.09);
-    border: 1px solid rgba(76,122,91,0.25); padding: 8px 10px; border-radius: 6px;
+    font-size: 12px; color: var(--green); background: var(--green-bg);
+    border: 1px solid #C7E9D5; padding: 8px 10px; border-radius: 6px;
     margin-bottom: 18px; line-height:1.4;
   }
   .modal-actions{ display:flex; justify-content:flex-end; gap:10px; }
@@ -455,6 +493,19 @@
   </div>
 
   <footer>Los datos se guardan en tu navegador entre sesiones. Exportá seguido a Excel para no perder el trabajo.</footer>
+</div>
+
+<!-- ---- Panel de detalle de historia (drawer lateral) ---- -->
+<div class="drawer-overlay" id="drawerOverlay" hidden></div>
+<div class="drawer" id="detailDrawer" hidden role="dialog" aria-modal="true" aria-label="Detalle de la historia">
+  <div class="drawer-header">
+    <div class="drawer-header-pills">
+      <span class="pill pill-id" id="drawerIdPill"></span>
+      <span class="pill pill-type" id="drawerTypePill"></span>
+    </div>
+    <button class="btn-icon" id="drawerCloseBtn" type="button" aria-label="Cerrar panel">✕</button>
+  </div>
+  <div class="drawer-body" id="drawerBody"></div>
 </div>
 
 <!-- ---- API key modal ---- -->
@@ -865,11 +916,10 @@ function renderCriteriosList(story){
 }
 
 /**
- * Renderiza el backlog completo. Cada tarjeta se arma según `story.tipo`
- * (grabado al momento de generar esa historia, no según el toggle actual de
- * la UI): 'humana' reusa el layout compacto original con los campos nuevos
- * de la estructura tradicional; 'agentica' usa un layout más denso (tarjeta
- * de doble ancho) para los subcampos de la estructura agéntica.
+ * Renderiza el backlog como lista compacta: una fila por historia con
+ * ID, tipo, título y las métricas clave (puntos, prioridad), sin ningún
+ * campo editable inline. El detalle completo y editable vive en el panel
+ * lateral (ver openDetail más abajo), que se abre al hacer click en la fila.
  */
 function render(){
   grid.innerHTML = '';
@@ -882,130 +932,213 @@ function render(){
 
   stories.forEach(story => {
     const isAgentic = story.tipo === 'agentica';
-    const card = document.createElement('div');
-    card.className = 'card' + (isAgentic ? ' agentica' : '');
-
-    const pin = document.createElement('div');
-    pin.className = 'pin ' + priorityClass(story.prioridad);
-    card.appendChild(pin);
-
-    let html = `
-      <div class="card-id">
-        <span>${story.id}<span class="type-badge ${isAgentic ? 'agentica' : 'humana'}">${isAgentic ? 'HU AI' : 'HU'}</span></span>
-        <button class="delete-btn" data-action="delete" data-id="${story.id}">eliminar</button>
-      </div>
-      <input class="title" type="text" value="${escapeAttr(story.titulo)}" data-field="titulo" data-id="${story.id}">
-      <div class="field">
-        <label>COMO</label>
-        <input type="text" value="${escapeAttr(story.como)}" data-field="como" data-id="${story.id}">
-      </div>
-      <div class="field">
-        <label>QUIERO</label>
-        <input type="text" value="${escapeAttr(story.quiero)}" data-field="quiero" data-id="${story.id}">
-      </div>
-      <div class="field">
-        <label>PARA</label>
-        <input type="text" value="${escapeAttr(story.para)}" data-field="para" data-id="${story.id}">
-      </div>
-      <div class="field">
-        <label>OBJETIVO DE NEGOCIO</label>
-        <textarea data-field="objetivoNegocio" data-id="${story.id}">${escapeHtml(story.objetivoNegocio)}</textarea>
-      </div>
+    const row = document.createElement('div');
+    row.className = 'row-item';
+    row.dataset.id = story.id;
+    row.innerHTML = `
+      <span class="pill pill-id">${story.id}</span>
+      <span class="pill pill-type ${isAgentic ? 'agentica' : 'humana'}">${isAgentic ? 'HU AI' : 'HU'}</span>
+      <span class="row-title">${escapeHtml(story.titulo) || 'Sin título'}</span>
+      <span class="row-right">
+        <span class="pill pill-points">${Number(story.puntos) || 0} SP</span>
+        <span class="pill pill-priority ${priorityClass(story.prioridad)}">${escapeHtml(story.prioridad || 'Media')}</span>
+        <button class="row-delete" type="button" data-action="delete" data-id="${story.id}" title="Eliminar historia" aria-label="Eliminar historia">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 6h18"/>
+            <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+          </svg>
+        </button>
+      </span>
     `;
-
-    if(isAgentic){
-      html += `
-        <div class="subgroup">
-          <div class="subgroup-title">Contexto y alcance</div>
-          <div class="field">
-            <label>SISTEMAS INVOLUCRADOS</label>
-            <textarea data-field="contextoAlcance.sistemasInvolucrados" data-id="${story.id}">${escapeHtml(story.contextoAlcance.sistemasInvolucrados)}</textarea>
-          </div>
-          <div class="field">
-            <label>NON-GOALS</label>
-            <textarea data-field="contextoAlcance.nonGoals" data-id="${story.id}">${escapeHtml(story.contextoAlcance.nonGoals)}</textarea>
-          </div>
-          <div class="field">
-            <label>DEPENDENCIAS</label>
-            <textarea data-field="contextoAlcance.dependencias" data-id="${story.id}">${escapeHtml(story.contextoAlcance.dependencias)}</textarea>
-          </div>
-        </div>
-        <div class="subgroup">
-          <div class="subgroup-title">Especificación técnica</div>
-          <div class="field">
-            <label>INPUTS</label>
-            <textarea data-field="especificacionTecnica.inputs" data-id="${story.id}">${escapeHtml(story.especificacionTecnica.inputs)}</textarea>
-          </div>
-          <div class="field">
-            <label>OUTPUTS</label>
-            <textarea data-field="especificacionTecnica.outputs" data-id="${story.id}">${escapeHtml(story.especificacionTecnica.outputs)}</textarea>
-          </div>
-          <div class="field">
-            <label>REGLAS DE NEGOCIO</label>
-            <textarea data-field="especificacionTecnica.reglasNegocio" data-id="${story.id}">${escapeHtml(story.especificacionTecnica.reglasNegocio)}</textarea>
-          </div>
-          <div class="field">
-            <label>RESTRICCIONES TÉCNICAS</label>
-            <textarea data-field="especificacionTecnica.restriccionesTecnicas" data-id="${story.id}">${escapeHtml(story.especificacionTecnica.restriccionesTecnicas)}</textarea>
-          </div>
-          <div class="field">
-            <label>CASOS BORDE</label>
-            <textarea data-field="especificacionTecnica.casosBorde" data-id="${story.id}">${escapeHtml((story.especificacionTecnica.casosBorde || []).join('\n'))}</textarea>
-          </div>
-        </div>
-      `;
-      html += renderCriteriosList(story);
-      html += renderDodList(story);
-      html += `
-        <div class="field">
-          <label>NIVEL DE AUTONOMÍA</label>
-          <textarea data-field="nivelAutonomia" data-id="${story.id}">${escapeHtml(story.nivelAutonomia)}</textarea>
-        </div>
-        <div class="field">
-          <label>PLAN DE ROLLBACK</label>
-          <textarea data-field="planRollback" data-id="${story.id}">${escapeHtml(story.planRollback)}</textarea>
-        </div>
-      `;
-    } else {
-      html += renderDodList(story);
-      html += renderCriteriosList(story);
-    }
-
-    html += `
-      <div class="meta-row">
-        <div class="field">
-          <label>PUNTOS</label>
-          <select data-field="puntos" data-id="${story.id}">
-            ${[1,2,3,5,8,13,21].map(p => `<option value="${p}" ${Number(story.puntos)===p?'selected':''}>${p}</option>`).join('')}
-          </select>
-        </div>
-        <div class="field">
-          <label>PRIORIDAD</label>
-          <select data-field="prioridad" data-id="${story.id}">
-            ${['Alta','Media','Baja'].map(p => `<option value="${p}" ${story.prioridad===p?'selected':''}>${p}</option>`).join('')}
-          </select>
-        </div>
-      </div>
-    `;
-
-    card.innerHTML += html;
-    grid.appendChild(card);
+    grid.appendChild(row);
   });
 }
 
-grid.addEventListener('click', (e) => {
-  const btn = e.target.closest('[data-action]');
-  if(!btn) return;
-  const action = btn.dataset.action;
-  const id = btn.dataset.id;
+/**
+ * Arma el HTML completo y editable de una historia (todos los campos según
+ * su `tipo`, más puntos y prioridad) para mostrarlo dentro del panel de
+ * detalle. Es el mismo contenido de campos que antes vivía siempre visible
+ * en la tarjeta expandida del grid; ahora vive solo acá, en el drawer.
+ * @param {object} story
+ * @returns {string}
+ */
+function renderStoryDetailFields(story){
+  const isAgentic = story.tipo === 'agentica';
 
-  if(action === 'delete'){
+  let html = `
+    <input class="drawer-title-input" type="text" value="${escapeAttr(story.titulo)}" data-field="titulo" data-id="${story.id}">
+    <div class="field">
+      <label>COMO</label>
+      <input type="text" value="${escapeAttr(story.como)}" data-field="como" data-id="${story.id}">
+    </div>
+    <div class="field">
+      <label>QUIERO</label>
+      <input type="text" value="${escapeAttr(story.quiero)}" data-field="quiero" data-id="${story.id}">
+    </div>
+    <div class="field">
+      <label>PARA</label>
+      <input type="text" value="${escapeAttr(story.para)}" data-field="para" data-id="${story.id}">
+    </div>
+    <div class="field">
+      <label>OBJETIVO DE NEGOCIO</label>
+      <textarea data-field="objetivoNegocio" data-id="${story.id}">${escapeHtml(story.objetivoNegocio)}</textarea>
+    </div>
+  `;
+
+  if(isAgentic){
+    html += `
+      <div class="subgroup">
+        <div class="subgroup-title">Contexto y alcance</div>
+        <div class="field">
+          <label>SISTEMAS INVOLUCRADOS</label>
+          <textarea data-field="contextoAlcance.sistemasInvolucrados" data-id="${story.id}">${escapeHtml(story.contextoAlcance.sistemasInvolucrados)}</textarea>
+        </div>
+        <div class="field">
+          <label>NON-GOALS</label>
+          <textarea data-field="contextoAlcance.nonGoals" data-id="${story.id}">${escapeHtml(story.contextoAlcance.nonGoals)}</textarea>
+        </div>
+        <div class="field">
+          <label>DEPENDENCIAS</label>
+          <textarea data-field="contextoAlcance.dependencias" data-id="${story.id}">${escapeHtml(story.contextoAlcance.dependencias)}</textarea>
+        </div>
+      </div>
+      <div class="subgroup">
+        <div class="subgroup-title">Especificación técnica</div>
+        <div class="field">
+          <label>INPUTS</label>
+          <textarea data-field="especificacionTecnica.inputs" data-id="${story.id}">${escapeHtml(story.especificacionTecnica.inputs)}</textarea>
+        </div>
+        <div class="field">
+          <label>OUTPUTS</label>
+          <textarea data-field="especificacionTecnica.outputs" data-id="${story.id}">${escapeHtml(story.especificacionTecnica.outputs)}</textarea>
+        </div>
+        <div class="field">
+          <label>REGLAS DE NEGOCIO</label>
+          <textarea data-field="especificacionTecnica.reglasNegocio" data-id="${story.id}">${escapeHtml(story.especificacionTecnica.reglasNegocio)}</textarea>
+        </div>
+        <div class="field">
+          <label>RESTRICCIONES TÉCNICAS</label>
+          <textarea data-field="especificacionTecnica.restriccionesTecnicas" data-id="${story.id}">${escapeHtml(story.especificacionTecnica.restriccionesTecnicas)}</textarea>
+        </div>
+        <div class="field">
+          <label>CASOS BORDE</label>
+          <textarea data-field="especificacionTecnica.casosBorde" data-id="${story.id}">${escapeHtml((story.especificacionTecnica.casosBorde || []).join('\n'))}</textarea>
+        </div>
+      </div>
+    `;
+    html += renderCriteriosList(story);
+    html += renderDodList(story);
+    html += `
+      <div class="field">
+        <label>NIVEL DE AUTONOMÍA</label>
+        <textarea data-field="nivelAutonomia" data-id="${story.id}">${escapeHtml(story.nivelAutonomia)}</textarea>
+      </div>
+      <div class="field">
+        <label>PLAN DE ROLLBACK</label>
+        <textarea data-field="planRollback" data-id="${story.id}">${escapeHtml(story.planRollback)}</textarea>
+      </div>
+    `;
+  } else {
+    html += renderDodList(story);
+    html += renderCriteriosList(story);
+  }
+
+  html += `
+    <div class="meta-row">
+      <div class="field">
+        <label>PUNTOS</label>
+        <select data-field="puntos" data-id="${story.id}">
+          ${[1,2,3,5,8,13,21].map(p => `<option value="${p}" ${Number(story.puntos)===p?'selected':''}>${p}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field">
+        <label>PRIORIDAD</label>
+        <select data-field="prioridad" data-id="${story.id}">
+          ${['Alta','Media','Baja'].map(p => `<option value="${p}" ${story.prioridad===p?'selected':''}>${p}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+  `;
+
+  return html;
+}
+
+// ---------- panel de detalle (drawer) ----------
+const drawerOverlay = document.getElementById('drawerOverlay');
+const detailDrawer = document.getElementById('detailDrawer');
+const drawerBody = document.getElementById('drawerBody');
+const drawerIdPill = document.getElementById('drawerIdPill');
+const drawerTypePill = document.getElementById('drawerTypePill');
+const drawerCloseBtn = document.getElementById('drawerCloseBtn');
+let currentDetailId = null;
+
+/**
+ * Abre el panel de detalle para una historia y renderiza todos sus campos
+ * editables adentro. No modifica el estado de `stories`, solo lee.
+ * @param {string} id
+ */
+function openDetail(id){
+  const story = stories.find(s => s.id === id);
+  if(!story) return;
+  const isAgentic = story.tipo === 'agentica';
+  currentDetailId = id;
+  drawerIdPill.textContent = story.id;
+  drawerTypePill.textContent = isAgentic ? 'HU AI' : 'HU';
+  drawerTypePill.className = 'pill pill-type' + (isAgentic ? ' agentica' : ' humana');
+  drawerBody.innerHTML = renderStoryDetailFields(story);
+  drawerOverlay.hidden = false;
+  detailDrawer.hidden = false;
+}
+
+/** Cierra el panel de detalle y vuelve a la lista. */
+function closeDetail(){
+  drawerOverlay.hidden = true;
+  detailDrawer.hidden = true;
+  currentDetailId = null;
+}
+
+/**
+ * Vuelve a pintar el contenido del panel de detalle abierto (usado tras
+ * agregar/quitar un item de DOD o un escenario de criterio de aceptación,
+ * donde cambian los índices de las filas). Si la historia ya no existe
+ * (se borró desde la lista mientras el panel estaba abierto), cierra el panel.
+ */
+function refreshOpenDetail(){
+  if(!currentDetailId) return;
+  const story = stories.find(s => s.id === currentDetailId);
+  if(!story){ closeDetail(); return; }
+  drawerBody.innerHTML = renderStoryDetailFields(story);
+}
+
+drawerCloseBtn.addEventListener('click', closeDetail);
+drawerOverlay.addEventListener('click', closeDetail);
+document.addEventListener('keydown', (e) => {
+  if(e.key === 'Escape' && !detailDrawer.hidden){ closeDetail(); }
+});
+
+// ---------- eventos de la lista: eliminar fila / abrir detalle ----------
+grid.addEventListener('click', (e) => {
+  const delBtn = e.target.closest('[data-action="delete"]');
+  if(delBtn){
+    e.stopPropagation();
+    const id = delBtn.dataset.id;
     stories = stories.filter(s => s.id !== id);
+    if(currentDetailId === id){ closeDetail(); }
     render();
     saveBacklog();
     return;
   }
+  const row = e.target.closest('.row-item');
+  if(row){ openDetail(row.dataset.id); }
+});
 
+// ---------- eventos del panel de detalle: agregar/quitar items, editar campos ----------
+drawerBody.addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-action]');
+  if(!btn) return;
+  const action = btn.dataset.action;
+  const id = btn.dataset.id;
   const story = stories.find(s => s.id === id);
   if(!story) return;
 
@@ -1020,11 +1153,11 @@ grid.addEventListener('click', (e) => {
   } else {
     return;
   }
-  render();
+  refreshOpenDetail();
   saveBacklog();
 });
 
-grid.addEventListener('change', (e) => {
+drawerBody.addEventListener('change', (e) => {
   const field = e.target.dataset.field;
   const id = e.target.dataset.id;
   if(!field || !id) return;
@@ -1043,7 +1176,7 @@ grid.addEventListener('change', (e) => {
   }
 
   setPath(story, field, value);
-  if(field === 'prioridad'){ render(); } // refresh pin color
+  render(); // refresca la fila de la lista (título/puntos/prioridad pueden haber cambiado)
   saveBacklog();
 });
 

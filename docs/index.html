@@ -1388,40 +1388,58 @@ async function generateStoriesFromIdea(ideaText, apiKey, tipo){
 }
 
 /**
- * Espera de reintento ante sobrecarga transitoria de Gemini. Fija en ~3s:
- * ni tan corta que golpee a Gemini de nuevo en pleno pico, ni tan larga que
- * el usuario piense que la UI se colgó (el botón "Generar historias" sigue
- * deshabilitado y en estado "generando" durante toda esta espera).
+ * Tiempos de espera antes de cada reintento ante sobrecarga transitoria de
+ * Gemini. Dos reintentos (3 intentos en total): 3s antes del primer
+ * reintento (cubre picos cortos sin golpear a Gemini de nuevo enseguida) y
+ * 5.5s antes del segundo (más margen si el pico persiste). No se agregan más
+ * reintentos para no encolar al usuario indefinidamente ante un problema que
+ * puede no ser transitorio.
  */
-const OVERLOAD_RETRY_DELAY_MS = 3000;
+const OVERLOAD_RETRY_DELAYS_MS = [3000, 5500];
 
 /**
- * Envuelve a generateStoriesFromIdea con UN reintento automático cuando el
- * primer intento falla por sobrecarga transitoria de Gemini (429/503,
+ * Envuelve a generateStoriesFromIdea con reintentos automáticos cuando el
+ * intento falla por sobrecarga transitoria de Gemini (429/503,
  * "overloaded"/"high demand"/"currently unavailable": ver
  * isTransientOverloadError). Este tipo de error suele resolverse solo en
- * pocos segundos, así que reintentar una vez evita mostrarle al usuario un
- * error que probablemente ya no aplica. Si el reintento también falla (sea
- * por sobrecarga otra vez o por cualquier otro motivo), se deja propagar el
- * error tal cual para que el caller lo muestre curado como siempre. Nunca
- * reintenta más de una vez, para no encolar al usuario ni gastar cuota de
- * más ante un problema que no es transitorio.
+ * pocos segundos, así que reintentar evita mostrarle al usuario un error que
+ * probablemente ya no aplica. Hace hasta OVERLOAD_RETRY_DELAYS_MS.length
+ * reintentos (3 intentos en total con los valores actuales). Si un intento
+ * falla por un motivo NO transitorio, o si ya se agotaron los reintentos, se
+ * deja propagar el error tal cual para que el caller lo muestre curado como
+ * siempre.
+ *
+ * Antes de cada espera de reintento invoca `onRetry` (si se pasó) para que
+ * el caller pueda actualizar el status visible: sin esto, el texto se queda
+ * fijo en "Generando historias..." durante toda la espera y el usuario
+ * percibe la app como colgada, que fue la causa real del reporte en
+ * producción (el pedido a Gemini respondía 503 pero no había ninguna señal
+ * de que se estaba reintentando).
  *
  * @param {string} ideaText - Idea ya validada (no vacía).
  * @param {string} apiKey - API key de Gemini de la persona.
  * @param {'humana'|'agentica'} tipo - Estructura de historia elegida en el toggle.
+ * @param {(nextAttempt: number, totalAttempts: number) => void} [onRetry] -
+ *   Callback invocado antes de cada espera, con el número del intento que
+ *   está por arrancar y el total de intentos posibles.
  * @returns {Promise<Array<object>>} Array de historias de usuario.
  * @throws {Error} El mismo tipo de error curado que generateStoriesFromIdea.
  */
-async function generateStoriesFromIdeaWithRetry(ideaText, apiKey, tipo){
-  try{
-    return await generateStoriesFromIdea(ideaText, apiKey, tipo);
-  }catch(err){
-    if(!err.isTransientOverload){
-      throw err;
+async function generateStoriesFromIdeaWithRetry(ideaText, apiKey, tipo, onRetry){
+  const totalAttempts = OVERLOAD_RETRY_DELAYS_MS.length + 1;
+  for(let attempt = 1; attempt <= totalAttempts; attempt++){
+    try{
+      return await generateStoriesFromIdea(ideaText, apiKey, tipo);
+    }catch(err){
+      const isLastAttempt = attempt === totalAttempts;
+      if(!err.isTransientOverload || isLastAttempt){
+        throw err;
+      }
+      if(onRetry){
+        onRetry(attempt + 1, totalAttempts);
+      }
+      await new Promise(resolve => setTimeout(resolve, OVERLOAD_RETRY_DELAYS_MS[attempt - 1]));
     }
-    await new Promise(resolve => setTimeout(resolve, OVERLOAD_RETRY_DELAY_MS));
-    return await generateStoriesFromIdea(ideaText, apiKey, tipo);
   }
 }
 
@@ -1445,7 +1463,9 @@ generateBtn.addEventListener('click', async () => {
   setStatus('Generando historias...');
 
   try{
-    const newStories = await generateStoriesFromIdeaWithRetry(idea, apiKey, tipo);
+    const newStories = await generateStoriesFromIdeaWithRetry(idea, apiKey, tipo, (nextAttempt, totalAttempts) => {
+      setStatus(`Gemini está con mucha demanda, reintentando... (intento ${nextAttempt} de ${totalAttempts})`);
+    });
     if(!Array.isArray(newStories) || newStories.length === 0){
       throw new Error('No se generaron historias, probá reformular la idea.');
     }

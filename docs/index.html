@@ -187,6 +187,21 @@
     border: 1px solid rgba(201,154,62,0.3); padding: 8px 12px; border-radius: 6px;
   }
 
+  /* ---- Selector de tipo de historia (HU / HU AI) ---- */
+  .type-toggle{
+    display:inline-flex; border:1px solid rgba(255,255,255,0.15); border-radius:8px;
+    overflow:hidden; margin-bottom:2px;
+  }
+  .type-toggle-btn{
+    background:transparent; color:#C8BFAF; border:none; font-family: var(--font-body);
+    font-size:12.5px; font-weight:500; padding:7px 14px; cursor:pointer;
+    transition: background .15s ease, color .15s ease;
+  }
+  .type-toggle-btn + .type-toggle-btn{ border-left:1px solid rgba(255,255,255,0.15); }
+  .type-toggle-btn.active{ background: var(--accent-blue); color:#FBF6EC; }
+  .type-toggle-btn:hover:not(.active){ color:#fff; }
+  .type-toggle-help{ font-size: 11.5px; color:#9A8F80; margin: 4px 0 0; }
+
   /* ---- Results ---- */
   .results-head{
     display:flex; justify-content:space-between; align-items:center;
@@ -215,6 +230,16 @@
   .card:nth-child(3n+1){ transform: rotate(-0.6deg); }
   .card:nth-child(3n+2){ transform: rotate(0.5deg); }
   .card:nth-child(3n+3){ transform: rotate(-0.3deg); }
+  .card.agentica{
+    grid-column: span 2;
+    font-size: 13px;
+  }
+  @media (max-width: 720px){ .card.agentica{ grid-column: span 1; } }
+  .card.agentica .field{ margin-bottom: 7px; }
+  .card.agentica .field label{ font-size: 10px; }
+  .card.agentica .field textarea, .card.agentica .field input[type=text]{
+    font-size: 12.5px; padding: 5px 7px;
+  }
   .pin{
     position:absolute; top:-9px; left:50%; transform: translateX(-50%);
     width:16px; height:16px; border-radius:50%;
@@ -234,6 +259,46 @@
     font-size: 13px; font-family: var(--font-mono); padding:2px 4px;
   }
   .delete-btn:hover{ color: var(--coral); }
+
+  .type-badge{
+    font-family: var(--font-mono); font-size:9.5px; letter-spacing:.04em;
+    padding:2px 6px; border-radius:4px; text-transform:uppercase; margin-left:8px;
+  }
+  .type-badge.humana{ background: rgba(61,90,115,0.12); color: var(--accent-blue-dark); }
+  .type-badge.agentica{ background: rgba(76,122,91,0.14); color: var(--green); }
+
+  .subgroup{
+    border:1px dashed var(--paper-line); border-radius:6px; padding:8px 10px; margin-bottom:10px;
+  }
+  .subgroup-title{
+    font-family: var(--font-mono); font-size:10px; color: var(--ink-soft);
+    text-transform: uppercase; letter-spacing:.05em; margin-bottom:6px;
+  }
+  .subgroup .field:last-child{ margin-bottom:0; }
+
+  .empty-hint{ font-size:12px; color: var(--ink-soft); font-style:italic; margin-bottom:6px; }
+
+  .dod-item{ display:flex; align-items:flex-start; gap:6px; margin-bottom:5px; }
+  .dod-item input[type=checkbox]{ margin-top:9px; flex-shrink:0; accent-color: var(--green); }
+  .dod-item input[type=text]{ flex:1; }
+
+  .criterio-block{
+    border:1px dashed var(--paper-line); border-radius:6px; padding:8px; margin-bottom:8px;
+  }
+  .criterio-block .criterio-head{
+    display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;
+  }
+  .criterio-block .criterio-num{
+    font-family: var(--font-mono); font-size:10px; color: var(--ink-soft); text-transform:uppercase;
+  }
+
+  .remove-btn, .add-btn{
+    background:none; border:none; cursor:pointer; font-family: var(--font-mono); font-size:11px;
+  }
+  .remove-btn{ color: var(--ink-soft); padding:2px 4px; flex-shrink:0; }
+  .remove-btn:hover{ color: var(--coral); }
+  .add-btn{ color: var(--accent-blue); padding:3px 0; margin-top:2px; }
+  .add-btn:hover{ text-decoration: underline; }
 
   .card input.title{
     width:100%; border:none; background:transparent; font-family: var(--font-display);
@@ -359,6 +424,11 @@
     </div>
 
     <div class="transcript-col">
+      <div class="type-toggle" id="typeToggle" role="group" aria-label="Tipo de historia a generar">
+        <button type="button" class="type-toggle-btn active" data-tipo="humana">HU</button>
+        <button type="button" class="type-toggle-btn" data-tipo="agentica">HU AI</button>
+      </div>
+      <p class="type-toggle-help">HU: historia tradicional para el equipo. HU AI: historia agéntica, extendida, para que la ejecute un agente de IA.</p>
       <label for="transcript">TU IDEA (podés editarla antes de generar)</label>
       <textarea id="transcript" placeholder="Ej: necesito que el equipo pueda filtrar los pedidos por estado y que además se pueda exportar ese listado a excel..."></textarea>
       <div id="supportWarning" class="support-warning" style="display:none;">
@@ -523,19 +593,186 @@ function setStatus(msg, isError){
   statusLine.className = 'status-line' + (isError ? ' error' : '');
 }
 
+// ---------- selector de tipo de historia (HU / HU AI), persistido por navegador ----------
+// Mismo patrón que la API key: se guarda en localStorage para que la última
+// elección se recuerde entre sesiones del mismo navegador. El tipo elegido
+// AL MOMENTO DE GENERAR queda grabado en cada historia resultante (story.tipo);
+// cambiar el toggle después no reinterpreta historias ya generadas.
+const TIPO_STORAGE_KEY = 'backlog-tipo-hu';
+const typeToggle = document.getElementById('typeToggle');
+const typeToggleBtns = Array.from(typeToggle.querySelectorAll('.type-toggle-btn'));
+
+function getSelectedTipo(){
+  try{
+    const saved = localStorage.getItem(TIPO_STORAGE_KEY);
+    return saved === 'agentica' ? 'agentica' : 'humana';
+  }catch(e){
+    return 'humana';
+  }
+}
+
+function setSelectedTipo(tipo){
+  const value = tipo === 'agentica' ? 'agentica' : 'humana';
+  typeToggleBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.tipo === value));
+  try{
+    localStorage.setItem(TIPO_STORAGE_KEY, value);
+  }catch(e){
+    // localStorage no disponible en esta vista: el toggle sigue funcionando en memoria
+  }
+}
+
+typeToggle.addEventListener('click', (e) => {
+  const btn = e.target.closest('.type-toggle-btn');
+  if(!btn) return;
+  setSelectedTipo(btn.dataset.tipo);
+});
+
+setSelectedTipo(getSelectedTipo());
+
+// ---------- normalización de datos de historias (esquema HU / HU AI) ----------
+/**
+ * Lee un valor anidado de un objeto a partir de un path tipo "a.b.c".
+ * @param {object} obj
+ * @param {string} path
+ * @returns {*}
+ */
+function getPath(obj, path){
+  return path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
+}
+
+/**
+ * Escribe un valor anidado en un objeto a partir de un path tipo "a.b.c",
+ * creando los objetos intermedios que falten.
+ * @param {object} obj
+ * @param {string} path
+ * @param {*} value
+ */
+function setPath(obj, path, value){
+  const parts = path.split('.');
+  let target = obj;
+  for(let i = 0; i < parts.length - 1; i++){
+    if(target[parts[i]] == null){ target[parts[i]] = {}; }
+    target = target[parts[i]];
+  }
+  target[parts[parts.length - 1]] = value;
+}
+
+/**
+ * Normaliza el array de criterios de aceptación (Dado/Cuando/Entonces) que
+ * puede venir de la IA o de localStorage, descartando entradas vacías.
+ * @param {Array<object>} arr
+ * @returns {Array<{dado:string, cuando:string, entonces:string}>}
+ */
+function normalizeCriterios(arr){
+  if(!Array.isArray(arr)) return [];
+  return arr
+    .map(c => ({
+      dado: (c && c.dado) || '',
+      cuando: (c && c.cuando) || '',
+      entonces: (c && c.entonces) || ''
+    }))
+    .filter(c => c.dado || c.cuando || c.entonces);
+}
+
+/**
+ * Normaliza el checklist de DOD a {texto, hecho}. La IA devuelve un array de
+ * strings (dod: [string,...]); localStorage puede tener objetos ya con el
+ * estado del checkbox.
+ * @param {Array<string|object>} arr
+ * @returns {Array<{texto:string, hecho:boolean}>}
+ */
+function normalizeDod(arr){
+  if(!Array.isArray(arr)) return [];
+  return arr
+    .map(item => {
+      if(typeof item === 'string') return { texto: item, hecho: false };
+      return { texto: (item && item.texto) || '', hecho: Boolean(item && item.hecho) };
+    })
+    .filter(d => d.texto);
+}
+
+/**
+ * Normaliza un array plano de strings (ej. casos borde), descartando vacíos.
+ * @param {Array<string>} arr
+ * @returns {Array<string>}
+ */
+function normalizeStringArray(arr){
+  return Array.isArray(arr) ? arr.filter(x => typeof x === 'string' && x.trim()) : [];
+}
+
+/**
+ * Migra una historia guardada en localStorage (de cualquier versión previa
+ * de la app) al esquema vigente HU / HU AI.
+ *
+ * Antes de este feature no existía `story.tipo` ni los campos
+ * `objetivoNegocio` / `dod` / `criteriosAceptacion`, y los campos base se
+ * llamaban `rol` / `paraQue` / `criterios` (array plano de strings). Mapeo
+ * elegido para no perder datos: cada elemento del `criterios` viejo pasa a
+ * ser su propio escenario Gherkin, con `entonces` = el texto original y
+ * `dado`/`cuando` vacíos para completar a mano. Se prefirió esto a colapsar
+ * todos los criterios viejos en un único escenario: una historia vieja con
+ * 3 criterios pasaría a tener un solo escenario con 3 oraciones mezcladas
+ * en "entonces", perdiendo la separación que sí tenía el dato original.
+ *
+ * @param {object} story - Historia tal como vino de localStorage.
+ * @returns {object} Historia normalizada al esquema vigente.
+ */
+function migrateStory(story){
+  if(!story || typeof story !== 'object') return story;
+
+  if(story.tipo === 'agentica'){
+    story.contextoAlcance = story.contextoAlcance || {};
+    story.contextoAlcance.sistemasInvolucrados = story.contextoAlcance.sistemasInvolucrados || '';
+    story.contextoAlcance.nonGoals = story.contextoAlcance.nonGoals || '';
+    story.contextoAlcance.dependencias = story.contextoAlcance.dependencias || '';
+    story.especificacionTecnica = story.especificacionTecnica || {};
+    story.especificacionTecnica.inputs = story.especificacionTecnica.inputs || '';
+    story.especificacionTecnica.outputs = story.especificacionTecnica.outputs || '';
+    story.especificacionTecnica.reglasNegocio = story.especificacionTecnica.reglasNegocio || '';
+    story.especificacionTecnica.restriccionesTecnicas = story.especificacionTecnica.restriccionesTecnicas || '';
+    story.especificacionTecnica.casosBorde = normalizeStringArray(story.especificacionTecnica.casosBorde);
+    story.dod = normalizeDod(story.dod);
+    story.criteriosAceptacion = normalizeCriterios(story.criteriosAceptacion);
+    story.nivelAutonomia = story.nivelAutonomia || '';
+    story.planRollback = story.planRollback || '';
+    story.objetivoNegocio = story.objetivoNegocio || '';
+    story.como = story.como || '';
+    story.quiero = story.quiero || '';
+    story.para = story.para || '';
+    return story;
+  }
+
+  // Sin `tipo` (historia de antes de este feature) o ya 'humana': se
+  // normaliza igual, completando lo que falte sin pisar lo que ya está bien.
+  const isLegacy = !story.tipo;
+  return {
+    ...story,
+    tipo: 'humana',
+    como: story.como != null ? story.como : (story.rol || ''),
+    quiero: story.quiero || '',
+    para: story.para != null ? story.para : (story.paraQue || ''),
+    objetivoNegocio: story.objetivoNegocio || '',
+    dod: normalizeDod(story.dod),
+    criteriosAceptacion: (isLegacy && Array.isArray(story.criterios) && story.criterios.length)
+      ? story.criterios.filter(Boolean).map(c => ({ dado: '', cuando: '', entonces: c }))
+      : normalizeCriterios(story.criteriosAceptacion)
+  };
+}
+
 // ---------- persistence (localStorage del navegador, entre sesiones) ----------
 function loadBacklog(){
   try{
     const raw = localStorage.getItem('backlog-stories');
     if(raw){
       const parsed = JSON.parse(raw);
-      stories = parsed.stories || [];
+      stories = (parsed.stories || []).map(migrateStory);
       nextIdNumber = parsed.nextIdNumber || (stories.length + 1);
     }
   }catch(e){
     // no hay backlog guardado todavía, o el storage no está disponible en esta vista
   }
   render();
+  saveBacklog(); // persiste el esquema ya migrado, para no repetir la migración en cada carga
 }
 
 function saveBacklog(){
@@ -557,6 +794,83 @@ function priorityClass(p){
   return 'media';
 }
 
+function escapeHtml(str){
+  return (str || '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+}
+function escapeAttr(str){
+  return escapeHtml(str).replace(/"/g, '&quot;');
+}
+
+/**
+ * Arma el bloque HTML del checklist de DOD (checkboxes reales, tildables,
+ * con el texto de cada ítem editable). Común a las tarjetas 'humana' y
+ * 'agentica'.
+ * @param {object} story
+ * @returns {string}
+ */
+function renderDodList(story){
+  const items = story.dod || [];
+  const rows = items.map((d, idx) => `
+      <div class="dod-item">
+        <input type="checkbox" ${d.hecho ? 'checked' : ''} data-field="dod.${idx}.hecho" data-id="${story.id}">
+        <input type="text" value="${escapeAttr(d.texto)}" data-field="dod.${idx}.texto" data-id="${story.id}">
+        <button class="remove-btn" type="button" data-action="remove-dod" data-idx="${idx}" data-id="${story.id}" title="Quitar item">x</button>
+      </div>
+    `).join('');
+  return `
+    <div class="field">
+      <label>DOD (DEFINICIÓN DE TERMINADO)</label>
+      <div class="dod-list">${rows || '<div class="empty-hint">Sin items todavía.</div>'}</div>
+      <button class="add-btn" type="button" data-action="add-dod" data-id="${story.id}">+ agregar item</button>
+    </div>
+  `;
+}
+
+/**
+ * Arma el bloque HTML de los escenarios de criterio de aceptación
+ * (Dado/Cuando/Entonces como campos separados, editables). Común a las
+ * tarjetas 'humana' y 'agentica'.
+ * @param {object} story
+ * @returns {string}
+ */
+function renderCriteriosList(story){
+  const items = story.criteriosAceptacion || [];
+  const blocks = items.map((c, idx) => `
+      <div class="criterio-block">
+        <div class="criterio-head">
+          <span class="criterio-num">Escenario ${idx + 1}</span>
+          <button class="remove-btn" type="button" data-action="remove-criterio" data-idx="${idx}" data-id="${story.id}">quitar</button>
+        </div>
+        <div class="field">
+          <label>DADO</label>
+          <input type="text" value="${escapeAttr(c.dado)}" data-field="criteriosAceptacion.${idx}.dado" data-id="${story.id}">
+        </div>
+        <div class="field">
+          <label>CUANDO</label>
+          <input type="text" value="${escapeAttr(c.cuando)}" data-field="criteriosAceptacion.${idx}.cuando" data-id="${story.id}">
+        </div>
+        <div class="field">
+          <label>ENTONCES</label>
+          <input type="text" value="${escapeAttr(c.entonces)}" data-field="criteriosAceptacion.${idx}.entonces" data-id="${story.id}">
+        </div>
+      </div>
+    `).join('');
+  return `
+    <div class="field">
+      <label>CRITERIO DE ACEPTACIÓN</label>
+      ${blocks || '<div class="empty-hint">Sin escenarios todavía.</div>'}
+      <button class="add-btn" type="button" data-action="add-criterio" data-id="${story.id}">+ agregar escenario</button>
+    </div>
+  `;
+}
+
+/**
+ * Renderiza el backlog completo. Cada tarjeta se arma según `story.tipo`
+ * (grabado al momento de generar esa historia, no según el toggle actual de
+ * la UI): 'humana' reusa el layout compacto original con los campos nuevos
+ * de la estructura tradicional; 'agentica' usa un layout más denso (tarjeta
+ * de doble ancho) para los subcampos de la estructura agéntica.
+ */
 function render(){
   grid.innerHTML = '';
   storyCount.textContent = stories.length;
@@ -567,35 +881,97 @@ function render(){
   }
 
   stories.forEach(story => {
+    const isAgentic = story.tipo === 'agentica';
     const card = document.createElement('div');
-    card.className = 'card';
+    card.className = 'card' + (isAgentic ? ' agentica' : '');
 
     const pin = document.createElement('div');
     pin.className = 'pin ' + priorityClass(story.prioridad);
     card.appendChild(pin);
 
-    card.innerHTML += `
+    let html = `
       <div class="card-id">
-        <span>${story.id}</span>
+        <span>${story.id}<span class="type-badge ${isAgentic ? 'agentica' : 'humana'}">${isAgentic ? 'HU AI' : 'HU'}</span></span>
         <button class="delete-btn" data-action="delete" data-id="${story.id}">eliminar</button>
       </div>
       <input class="title" type="text" value="${escapeAttr(story.titulo)}" data-field="titulo" data-id="${story.id}">
       <div class="field">
         <label>COMO</label>
-        <input type="text" value="${escapeAttr(story.rol)}" data-field="rol" data-id="${story.id}">
+        <input type="text" value="${escapeAttr(story.como)}" data-field="como" data-id="${story.id}">
       </div>
       <div class="field">
         <label>QUIERO</label>
         <input type="text" value="${escapeAttr(story.quiero)}" data-field="quiero" data-id="${story.id}">
       </div>
       <div class="field">
-        <label>PARA QUE</label>
-        <input type="text" value="${escapeAttr(story.paraQue)}" data-field="paraQue" data-id="${story.id}">
+        <label>PARA</label>
+        <input type="text" value="${escapeAttr(story.para)}" data-field="para" data-id="${story.id}">
       </div>
       <div class="field">
-        <label>CRITERIOS DE ACEPTACION</label>
-        <textarea class="criteria" data-field="criterios" data-id="${story.id}">${escapeHtml((story.criterios||[]).join('\n'))}</textarea>
+        <label>OBJETIVO DE NEGOCIO</label>
+        <textarea data-field="objetivoNegocio" data-id="${story.id}">${escapeHtml(story.objetivoNegocio)}</textarea>
       </div>
+    `;
+
+    if(isAgentic){
+      html += `
+        <div class="subgroup">
+          <div class="subgroup-title">Contexto y alcance</div>
+          <div class="field">
+            <label>SISTEMAS INVOLUCRADOS</label>
+            <textarea data-field="contextoAlcance.sistemasInvolucrados" data-id="${story.id}">${escapeHtml(story.contextoAlcance.sistemasInvolucrados)}</textarea>
+          </div>
+          <div class="field">
+            <label>NON-GOALS</label>
+            <textarea data-field="contextoAlcance.nonGoals" data-id="${story.id}">${escapeHtml(story.contextoAlcance.nonGoals)}</textarea>
+          </div>
+          <div class="field">
+            <label>DEPENDENCIAS</label>
+            <textarea data-field="contextoAlcance.dependencias" data-id="${story.id}">${escapeHtml(story.contextoAlcance.dependencias)}</textarea>
+          </div>
+        </div>
+        <div class="subgroup">
+          <div class="subgroup-title">Especificación técnica</div>
+          <div class="field">
+            <label>INPUTS</label>
+            <textarea data-field="especificacionTecnica.inputs" data-id="${story.id}">${escapeHtml(story.especificacionTecnica.inputs)}</textarea>
+          </div>
+          <div class="field">
+            <label>OUTPUTS</label>
+            <textarea data-field="especificacionTecnica.outputs" data-id="${story.id}">${escapeHtml(story.especificacionTecnica.outputs)}</textarea>
+          </div>
+          <div class="field">
+            <label>REGLAS DE NEGOCIO</label>
+            <textarea data-field="especificacionTecnica.reglasNegocio" data-id="${story.id}">${escapeHtml(story.especificacionTecnica.reglasNegocio)}</textarea>
+          </div>
+          <div class="field">
+            <label>RESTRICCIONES TÉCNICAS</label>
+            <textarea data-field="especificacionTecnica.restriccionesTecnicas" data-id="${story.id}">${escapeHtml(story.especificacionTecnica.restriccionesTecnicas)}</textarea>
+          </div>
+          <div class="field">
+            <label>CASOS BORDE</label>
+            <textarea data-field="especificacionTecnica.casosBorde" data-id="${story.id}">${escapeHtml((story.especificacionTecnica.casosBorde || []).join('\n'))}</textarea>
+          </div>
+        </div>
+      `;
+      html += renderCriteriosList(story);
+      html += renderDodList(story);
+      html += `
+        <div class="field">
+          <label>NIVEL DE AUTONOMÍA</label>
+          <textarea data-field="nivelAutonomia" data-id="${story.id}">${escapeHtml(story.nivelAutonomia)}</textarea>
+        </div>
+        <div class="field">
+          <label>PLAN DE ROLLBACK</label>
+          <textarea data-field="planRollback" data-id="${story.id}">${escapeHtml(story.planRollback)}</textarea>
+        </div>
+      `;
+    } else {
+      html += renderDodList(story);
+      html += renderCriteriosList(story);
+    }
+
+    html += `
       <div class="meta-row">
         <div class="field">
           <label>PUNTOS</label>
@@ -611,24 +987,41 @@ function render(){
         </div>
       </div>
     `;
+
+    card.innerHTML += html;
     grid.appendChild(card);
   });
 }
 
-function escapeHtml(str){
-  return (str || '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
-}
-function escapeAttr(str){
-  return escapeHtml(str).replace(/"/g, '&quot;');
-}
-
 grid.addEventListener('click', (e) => {
-  if(e.target.dataset.action === 'delete'){
-    const id = e.target.dataset.id;
+  const btn = e.target.closest('[data-action]');
+  if(!btn) return;
+  const action = btn.dataset.action;
+  const id = btn.dataset.id;
+
+  if(action === 'delete'){
     stories = stories.filter(s => s.id !== id);
     render();
     saveBacklog();
+    return;
   }
+
+  const story = stories.find(s => s.id === id);
+  if(!story) return;
+
+  if(action === 'add-dod'){
+    story.dod.push({ texto: '', hecho: false });
+  } else if(action === 'remove-dod'){
+    story.dod.splice(Number(btn.dataset.idx), 1);
+  } else if(action === 'add-criterio'){
+    story.criteriosAceptacion.push({ dado: '', cuando: '', entonces: '' });
+  } else if(action === 'remove-criterio'){
+    story.criteriosAceptacion.splice(Number(btn.dataset.idx), 1);
+  } else {
+    return;
+  }
+  render();
+  saveBacklog();
 });
 
 grid.addEventListener('change', (e) => {
@@ -637,13 +1030,19 @@ grid.addEventListener('change', (e) => {
   if(!field || !id) return;
   const story = stories.find(s => s.id === id);
   if(!story) return;
-  if(field === 'criterios'){
-    story.criterios = e.target.value.split('\n').map(s => s.trim()).filter(Boolean);
+
+  let value;
+  if(e.target.type === 'checkbox'){
+    value = e.target.checked;
   } else if(field === 'puntos'){
-    story.puntos = Number(e.target.value);
+    value = Number(e.target.value);
+  } else if(field === 'especificacionTecnica.casosBorde'){
+    value = e.target.value.split('\n').map(s => s.trim()).filter(Boolean);
   } else {
-    story[field] = e.target.value;
+    value = e.target.value;
   }
+
+  setPath(story, field, value);
   if(field === 'prioridad'){ render(); } // refresh pin color
   saveBacklog();
 });
@@ -746,23 +1145,83 @@ const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 // fecha, o este mismo bug vuelve, pero como "modelo no disponible" en vez
 // de "alta demanda".
 const GEMINI_MODEL = 'gemini-2.5-flash';
-const MAX_OUTPUT_TOKENS = 8192;
+// Dos presupuestos de tokens de salida distintos según el tipo de historia:
+// la estructura 'agentica' tiene bastantes más subcampos por historia
+// (contextoAlcance y especificacionTecnica anidados, casos borde, nivel de
+// autonomia, plan de rollback), lo que la hace notablemente más verbosa que
+// la estructura 'humana'. Se duplicó el límite para 'agentica' (16384) para
+// bajar el riesgo de truncamiento por MAX_TOKENS con 2-3 historias en la
+// misma idea, sin llevarlo a un valor arbitrariamente alto que dispare
+// latencia/costo de más. 'humana' se deja igual que antes (8192): esa
+// estructura no cambió su volumen de campos respecto a la versión previa.
+const MAX_OUTPUT_TOKENS_HUMANA = 8192;
+const MAX_OUTPUT_TOKENS_AGENTICA = 16384;
+function getMaxOutputTokens(tipo){
+  return tipo === 'agentica' ? MAX_OUTPUT_TOKENS_AGENTICA : MAX_OUTPUT_TOKENS_HUMANA;
+}
 // gemini-2.5-flash no soporta razonamiento apagado del todo salvo con
 // thinkingBudget: 0 (ver nota histórica en server.js / README). Si alguna
 // vez se pinnea un modelo "-pro", ese modelo exige mínimo 128.
 const THINKING_BUDGET = /-pro/i.test(GEMINI_MODEL) ? 128 : 0;
 
-function buildSystemInstruction(){
+/**
+ * Arma el systemInstruction para Gemini según el tipo de historia elegido en
+ * el toggle. No le pide `id` a la IA en ningún caso: el ID lo asigna
+ * siempre el generador propio de la app (formatId/nextIdNumber).
+ *
+ * @param {'humana'|'agentica'} tipo
+ * @returns {string}
+ */
+function buildSystemInstruction(tipo){
+  return tipo === 'agentica' ? buildSystemInstructionAgentica() : buildSystemInstructionHumana();
+}
+
+function buildSystemInstructionHumana(){
   return `Sos un Product Owner experto en metodologias agiles (Scrum/Kanban) que arma historias de usuario a partir de ideas dictadas por voz por un lider de equipo.
 
-Tarea: leer la idea y convertirla en una o mas historias de usuario completas.
+Tarea: leer la idea y convertirla en una o mas historias de usuario completas, en el formato tradicional que usa un equipo humano.
 
 Reglas:
 - Si la idea combina mas de una funcionalidad o necesidad distinta, separala en historias de usuario independientes.
-- Cada historia debe tener: titulo corto (maximo 8 palabras), rol (quien necesita la funcionalidad, ej "usuario del equipo de ventas"), la funcionalidad deseada en pocas palabras, el beneficio o motivo, entre 2 y 5 criterios de aceptacion concretos y verificables, una estimacion en story points (Fibonacci: 1, 2, 3, 5, 8, 13, 21) y una prioridad (Alta, Media o Baja) segun el impacto que se desprende de la idea.
-- Los criterios de aceptacion son oraciones cortas y verificables, no un parrafo.
+- Cada historia debe tener:
+  - titulo: corto, maximo 8 palabras.
+  - como: rol o tipo de usuario especifico (ej "cliente registrado"), nunca algo generico como "usuario".
+  - quiero: la accion o funcionalidad concreta que necesita, enfocada en el que, no en el como tecnico.
+  - para: el beneficio inmediato que obtiene el usuario.
+  - objetivoNegocio: la metrica o resultado de negocio que esta historia busca impactar (texto libre).
+  - dod: entre 3 y 6 condiciones generales de Definicion de Terminado (ej "codigo revisado y aprobado", "tests unitarios pasando", "desplegado en QA", "validado sin bugs criticos", "aprobado por PO"), como array de strings.
+  - criteriosAceptacion: entre 1 y 4 escenarios, cada uno con tres campos separados (dado: contexto inicial, cuando: accion o evento, entonces: resultado esperado), oraciones cortas y verificables.
+  - puntos: estimacion en story points (Fibonacci: 1, 2, 3, 5, 8, 13, 21).
+  - prioridad: "Alta", "Media" o "Baja" segun el impacto que se desprende de la idea.
+- No incluyas ningun campo "id": ese lo asigna otro sistema.
 - Respondes UNICAMENTE con JSON valido (sin texto adicional, sin markdown, sin bloques de codigo), con este formato exacto:
-[{"titulo":"...", "rol":"...", "quiero":"...", "paraQue":"...", "criterios":["...","..."], "puntos":5, "prioridad":"Media"}]`;
+[{"titulo":"...", "como":"...", "quiero":"...", "para":"...", "objetivoNegocio":"...", "dod":["...","..."], "criteriosAceptacion":[{"dado":"...","cuando":"...","entonces":"..."}], "puntos":5, "prioridad":"Media"}]`;
+}
+
+function buildSystemInstructionAgentica(){
+  return `Sos un arquitecto de software que redacta historias de usuario en formato AGENTICO: version extendida y deterministica, pensada para que la ejecute un agente de IA (no una persona), a partir de ideas dictadas por voz por un lider de equipo.
+
+Tarea: leer la idea y convertirla en una o mas historias de usuario completas donde todo lo que un humano infiere del contexto queda explicito, para que un agente la pueda ejecutar sin ambiguedad.
+
+Reglas:
+- Si la idea combina mas de una funcionalidad o necesidad distinta, separala en historias independientes.
+- Cada historia debe tener:
+  - titulo: corto, maximo 8 palabras.
+  - como: el agente o rol que ejecuta (ej "agente de backend", "agente QA"), nunca un usuario humano.
+  - quiero: accion concreta y verificable, redactada sin ambiguedad, de forma que se pueda validar por codigo.
+  - para: resultado o beneficio esperado, enfocado en el resultado tecnico/funcional.
+  - objetivoNegocio: metrica u outcome de negocio que impacta.
+  - contextoAlcance: objeto con sistemasInvolucrados (sistemas/archivos/modulos/servicios afectados), nonGoals (que NO debe tocar el agente) y dependencias (historias/APIs/agentes previos requeridos), los tres como texto libre.
+  - especificacionTecnica: objeto con inputs (formato/tipo/origen esperado), outputs (formato/tipo/destino esperado), reglasNegocio (condiciones explicitas de la logica), restriccionesTecnicas (stack, versiones, librerias permitidas o prohibidas) y casosBorde (array de strings con casos limite a contemplar).
+  - criteriosAceptacion: entre 1 y 4 escenarios Dado/Cuando/Entonces, redactados con valores y condiciones concretas para que sean comparables programaticamente.
+  - dod: checklist tecnico como array de strings (ej "tests automatizados en verde", "cobertura minima 85%", "sin errores de linting", "documentacion actualizada", "logs de ejecucion disponibles", "validado por otro agente o humano").
+  - nivelAutonomia: texto libre: que puede decidir solo el agente, que requiere aprobacion humana, y si corre en sandbox o produccion.
+  - planRollback: texto libre: que hacer si la ejecucion falla o da resultados inesperados (como revertir, a quien notificar, bajo que condicion detener).
+  - puntos: estimacion en story points (Fibonacci: 1, 2, 3, 5, 8, 13, 21).
+  - prioridad: "Alta", "Media" o "Baja" segun el impacto que se desprende de la idea.
+- No incluyas ningun campo "id": ese lo asigna otro sistema.
+- Respondes UNICAMENTE con JSON valido (sin texto adicional, sin markdown, sin bloques de codigo), con este formato exacto:
+[{"titulo":"...", "como":"...", "quiero":"...", "para":"...", "objetivoNegocio":"...", "contextoAlcance":{"sistemasInvolucrados":"...","nonGoals":"...","dependencias":"..."}, "especificacionTecnica":{"inputs":"...","outputs":"...","reglasNegocio":"...","restriccionesTecnicas":"...","casosBorde":["...","..."]}, "criteriosAceptacion":[{"dado":"...","cuando":"...","entonces":"..."}], "dod":["...","..."], "nivelAutonomia":"...", "planRollback":"...", "puntos":5, "prioridad":"Media"}]`;
 }
 
 /**
@@ -842,10 +1301,11 @@ function isTransientOverloadError(httpStatus, upstreamMessage, upstreamStatus){
  *
  * @param {string} ideaText - Idea ya validada (no vacía).
  * @param {string} apiKey - API key de Gemini de la persona, leída de localStorage.
+ * @param {'humana'|'agentica'} tipo - Estructura de historia elegida en el toggle.
  * @returns {Promise<Array<object>>} Array de historias de usuario.
  * @throws {Error} Con mensaje curado, apto para mostrar directo al usuario.
  */
-async function generateStoriesFromIdea(ideaText, apiKey){
+async function generateStoriesFromIdea(ideaText, apiKey, tipo){
   const url = `${GEMINI_API_BASE}/models/${GEMINI_MODEL}:generateContent`;
 
   let response;
@@ -857,10 +1317,10 @@ async function generateStoriesFromIdea(ideaText, apiKey){
         'x-goog-api-key': apiKey,
       },
       body: JSON.stringify({
-        systemInstruction: { parts: [{ text: buildSystemInstruction() }] },
+        systemInstruction: { parts: [{ text: buildSystemInstruction(tipo) }] },
         contents: [{ role: 'user', parts: [{ text: `Idea del usuario:\n${ideaText}` }] }],
         generationConfig: {
-          maxOutputTokens: MAX_OUTPUT_TOKENS,
+          maxOutputTokens: getMaxOutputTokens(tipo),
           responseMimeType: 'application/json',
           thinkingConfig: { thinkingBudget: THINKING_BUDGET },
         },
@@ -949,18 +1409,19 @@ const OVERLOAD_RETRY_DELAY_MS = 3000;
  *
  * @param {string} ideaText - Idea ya validada (no vacía).
  * @param {string} apiKey - API key de Gemini de la persona.
+ * @param {'humana'|'agentica'} tipo - Estructura de historia elegida en el toggle.
  * @returns {Promise<Array<object>>} Array de historias de usuario.
  * @throws {Error} El mismo tipo de error curado que generateStoriesFromIdea.
  */
-async function generateStoriesFromIdeaWithRetry(ideaText, apiKey){
+async function generateStoriesFromIdeaWithRetry(ideaText, apiKey, tipo){
   try{
-    return await generateStoriesFromIdea(ideaText, apiKey);
+    return await generateStoriesFromIdea(ideaText, apiKey, tipo);
   }catch(err){
     if(!err.isTransientOverload){
       throw err;
     }
     await new Promise(resolve => setTimeout(resolve, OVERLOAD_RETRY_DELAY_MS));
-    return await generateStoriesFromIdea(ideaText, apiKey);
+    return await generateStoriesFromIdea(ideaText, apiKey, tipo);
   }
 }
 
@@ -979,25 +1440,46 @@ generateBtn.addEventListener('click', async () => {
     return;
   }
 
+  const tipo = getSelectedTipo();
   generateBtn.disabled = true;
   setStatus('Generando historias...');
 
   try{
-    const newStories = await generateStoriesFromIdeaWithRetry(idea, apiKey);
+    const newStories = await generateStoriesFromIdeaWithRetry(idea, apiKey, tipo);
     if(!Array.isArray(newStories) || newStories.length === 0){
       throw new Error('No se generaron historias, probá reformular la idea.');
     }
     newStories.forEach(s => {
-      stories.push({
+      const story = {
         id: formatId(nextIdNumber++),
+        tipo: tipo, // tipo elegido AL MOMENTO DE GENERAR: no se reinterpreta si después cambia el toggle
         titulo: s.titulo || 'Sin titulo',
-        rol: s.rol || '',
+        como: s.como || '',
         quiero: s.quiero || '',
-        paraQue: s.paraQue || '',
-        criterios: Array.isArray(s.criterios) ? s.criterios : [],
+        para: s.para || '',
+        objetivoNegocio: s.objetivoNegocio || '',
+        dod: normalizeDod(s.dod),
+        criteriosAceptacion: normalizeCriterios(s.criteriosAceptacion),
         puntos: Number(s.puntos) || 3,
         prioridad: s.prioridad || 'Media'
-      });
+      };
+      if(tipo === 'agentica'){
+        story.contextoAlcance = {
+          sistemasInvolucrados: (s.contextoAlcance && s.contextoAlcance.sistemasInvolucrados) || '',
+          nonGoals: (s.contextoAlcance && s.contextoAlcance.nonGoals) || '',
+          dependencias: (s.contextoAlcance && s.contextoAlcance.dependencias) || ''
+        };
+        story.especificacionTecnica = {
+          inputs: (s.especificacionTecnica && s.especificacionTecnica.inputs) || '',
+          outputs: (s.especificacionTecnica && s.especificacionTecnica.outputs) || '',
+          reglasNegocio: (s.especificacionTecnica && s.especificacionTecnica.reglasNegocio) || '',
+          restriccionesTecnicas: (s.especificacionTecnica && s.especificacionTecnica.restriccionesTecnicas) || '',
+          casosBorde: normalizeStringArray(s.especificacionTecnica && s.especificacionTecnica.casosBorde)
+        };
+        story.nivelAutonomia = s.nivelAutonomia || '';
+        story.planRollback = s.planRollback || '';
+      }
+      stories.push(story);
     });
     render();
     saveBacklog();
@@ -1011,22 +1493,80 @@ generateBtn.addEventListener('click', async () => {
 });
 
 // ---------- export & clear ----------
+// Decisión de diseño (export): una sola hoja con el superset de columnas de
+// ambas estructuras (HU y HU AI), dejando en blanco lo que no aplica a cada
+// fila, en vez de separar en dos hojas. Se eligió por ser más simple de
+// implementar bien y porque el usuario suele querer ver TODO el backlog
+// junto (mezclado) en un único lugar para priorizar o compartir, sin tener
+// que ir cambiando de pestaña según el tipo de cada fila. Los nombres de
+// columna quedan tal como los pide el documento de referencia del negocio
+// ("DOD", "Criterio de aceptación", "Contexto y alcance - ...", etc.).
+
+/**
+ * Formatea los escenarios Dado/Cuando/Entonces de una historia como texto
+ * plano numerado, para la columna "Criterio de aceptación" del Excel.
+ * @param {Array<{dado:string,cuando:string,entonces:string}>} criterios
+ * @returns {string}
+ */
+function formatCriteriosForExport(criterios){
+  return (criterios || []).map((c, i) => {
+    const parts = [];
+    if(c.dado) parts.push('Dado: ' + c.dado);
+    if(c.cuando) parts.push('Cuando: ' + c.cuando);
+    if(c.entonces) parts.push('Entonces: ' + c.entonces);
+    return (i + 1) + '. ' + parts.join(' | ');
+  }).join('\n');
+}
+
+/**
+ * Formatea el checklist de DOD de una historia como texto plano con
+ * casillas [x]/[ ] reflejando el estado tildado, para la columna "DOD".
+ * @param {Array<{texto:string,hecho:boolean}>} dod
+ * @returns {string}
+ */
+function formatDodForExport(dod){
+  return (dod || []).map(d => '[' + (d.hecho ? 'x' : ' ') + '] ' + d.texto).join('\n');
+}
+
 document.getElementById('exportBtn').addEventListener('click', () => {
   if(stories.length === 0){
     setStatus('No hay historias para exportar todavía.', true);
     return;
   }
-  const rows = stories.map(s => ({
-    'ID': s.id,
-    'Tipo': 'Historia de usuario',
-    'Titulo / Resumen': s.titulo,
-    'Descripcion': `Como ${s.rol}, quiero ${s.quiero}, para ${s.paraQue}.`,
-    'Criterios de aceptacion': (s.criterios || []).map((c,i) => (i+1)+'. '+c).join('\n'),
-    'Story Points': s.puntos,
-    'Prioridad': s.prioridad
-  }));
+  const rows = stories.map(s => {
+    const isAgentic = s.tipo === 'agentica';
+    return {
+      'ID': s.id,
+      'Tipo': isAgentic ? 'HU AI (agéntica)' : 'HU (tradicional)',
+      'Titulo': s.titulo,
+      'Como': s.como,
+      'Quiero': s.quiero,
+      'Para': s.para,
+      'Objetivo de negocio': s.objetivoNegocio,
+      'Contexto y alcance - Sistemas involucrados': isAgentic ? s.contextoAlcance.sistemasInvolucrados : '',
+      'Contexto y alcance - Non-goals': isAgentic ? s.contextoAlcance.nonGoals : '',
+      'Contexto y alcance - Dependencias': isAgentic ? s.contextoAlcance.dependencias : '',
+      'Especificacion tecnica - Inputs': isAgentic ? s.especificacionTecnica.inputs : '',
+      'Especificacion tecnica - Outputs': isAgentic ? s.especificacionTecnica.outputs : '',
+      'Especificacion tecnica - Reglas de negocio': isAgentic ? s.especificacionTecnica.reglasNegocio : '',
+      'Especificacion tecnica - Restricciones tecnicas': isAgentic ? s.especificacionTecnica.restriccionesTecnicas : '',
+      'Especificacion tecnica - Casos borde': isAgentic ? (s.especificacionTecnica.casosBorde || []).join('\n') : '',
+      'Criterio de aceptación': formatCriteriosForExport(s.criteriosAceptacion),
+      'DOD': formatDodForExport(s.dod),
+      'Nivel de autonomia': isAgentic ? s.nivelAutonomia : '',
+      'Plan de rollback': isAgentic ? s.planRollback : '',
+      'Story Points': s.puntos,
+      'Prioridad': s.prioridad
+    };
+  });
   const ws = XLSX.utils.json_to_sheet(rows);
-  ws['!cols'] = [{wch:10},{wch:16},{wch:30},{wch:50},{wch:50},{wch:12},{wch:10}];
+  ws['!cols'] = [
+    {wch:10},{wch:18},{wch:24},{wch:22},{wch:26},{wch:22},{wch:26},
+    {wch:26},{wch:20},{wch:22},
+    {wch:22},{wch:22},{wch:24},{wch:24},{wch:26},
+    {wch:40},{wch:34},{wch:26},{wch:30},
+    {wch:12},{wch:10}
+  ];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Backlog');
   XLSX.writeFile(wb, 'backlog.xlsx');

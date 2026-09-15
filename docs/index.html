@@ -193,6 +193,48 @@
     border: 1px solid #F3DDA0; padding: 8px 12px; border-radius: 6px;
   }
 
+  /* ---- Captura de imagen (pegar/subir una captura con títulos) ---- */
+  .image-capture{ display:flex; flex-direction:column; gap:6px; }
+  .image-capture label{
+    font-family: var(--font-mono); font-size: 11px; letter-spacing:.04em; text-transform:uppercase;
+    color: var(--ink-faint);
+  }
+  .image-dropzone{
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+    background: #FAFAFC;
+    padding: 12px 14px;
+    display:flex; align-items:center; justify-content:center;
+    min-height: 52px;
+    cursor: pointer;
+    transition: border-color .15s ease, background .15s ease;
+  }
+  .image-dropzone:hover, .image-dropzone:focus{
+    outline:none; border-color: var(--accent); background: var(--accent-soft-bg);
+  }
+  .image-dropzone-empty{
+    display:flex; align-items:center; gap:6px; flex-wrap:wrap; justify-content:center;
+    font-size: 13px; color: var(--ink-soft); text-align:center;
+  }
+  .image-dropzone-empty svg{ width:17px; height:17px; flex-shrink:0; color: var(--ink-faint); }
+  .link-btn{
+    background:none; border:none; padding:0; margin:0; cursor:pointer;
+    color: var(--accent); font-family: var(--font-body); font-size:13px; text-decoration: underline;
+  }
+  .link-btn:hover{ color: var(--accent-dark); }
+  .image-preview{ display:none; align-items:center; gap:10px; width:100%; cursor:default; }
+  .image-preview img{
+    max-height: 76px; max-width: 150px; border-radius:6px; border:1px solid var(--border);
+    object-fit: contain; background:#fff;
+  }
+  .image-preview-info{ flex:1; font-size:12px; color: var(--ink-soft); }
+  .image-remove-btn{
+    background:none; border:none; cursor:pointer; color: var(--ink-faint);
+    padding:6px; border-radius:6px; display:flex; align-items:center; justify-content:center; flex-shrink:0;
+  }
+  .image-remove-btn:hover{ color: var(--coral); background: var(--coral-bg); }
+  .image-remove-btn svg{ width:16px; height:16px; }
+
   /* ---- Selector de tipo de historia (HU / HU AI) ---- */
   .type-toggle{
     display:inline-flex; border:1px solid var(--border); border-radius:8px;
@@ -472,6 +514,31 @@
       <div id="supportWarning" class="support-warning" style="display:none;">
         Este navegador no soporta dictado por voz (o el micrófono no está disponible en esta vista). Podés escribir la idea manualmente arriba.
       </div>
+
+      <div class="image-capture">
+        <label for="imageFileInput">O CAPTURA CON TÍTULOS (OPCIONAL: EXCEL, JIRA, TRELLO, PM SCRUM)</label>
+        <div class="image-dropzone" id="imageDropZone" tabindex="0" role="button" aria-label="Pegar o subir una captura con títulos de historias">
+          <div class="image-dropzone-empty" id="imageDropZoneEmpty">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2"/>
+              <circle cx="8.5" cy="8.5" r="1.5"/>
+              <path d="M21 15l-5-5L5 21"/>
+            </svg>
+            <span>Pegá una captura acá (Ctrl+V) o <button type="button" class="link-btn" id="imageBrowseBtn">elegí un archivo</button></span>
+          </div>
+          <div class="image-preview" id="imagePreview">
+            <img id="imagePreviewImg" alt="Preview de la captura cargada">
+            <span class="image-preview-info">Captura cargada. Se va a mandar junto con la idea (si escribiste algo) al generar.</span>
+            <button type="button" class="image-remove-btn" id="imageRemoveBtn" title="Quitar imagen" aria-label="Quitar imagen">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M18 6L6 18M6 6l12 12"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <input type="file" id="imageFileInput" accept="image/*" hidden>
+      </div>
+
       <div class="capture-actions">
         <button class="primary" id="generateBtn">Generar historias</button>
         <button class="ghost" id="clearTranscriptBtn">Limpiar texto</button>
@@ -1255,6 +1322,165 @@ document.getElementById('clearTranscriptBtn').addEventListener('click', () => {
 });
 
 // ============================================================================
+// Captura de imagen (pegar o subir una captura de pantalla con una lista de
+// títulos: Excel, Jira, Trello, o la app interna "PM Scrum"). La imagen se
+// redimensiona/comprime en el cliente ANTES de guardarla en `capturedImage`,
+// que es lo que se manda a Gemini como `inlineData` al generar (ver más abajo).
+// No dispara la generación por sí sola: solo deja la imagen lista, igual que
+// escribir texto en el textarea.
+// ============================================================================
+const IMAGE_MAX_DIMENSION = 1600; // lado más largo, en px, tras el resize
+const IMAGE_JPEG_QUALITY = 0.8;
+
+const imageDropZone = document.getElementById('imageDropZone');
+const imageDropZoneEmpty = document.getElementById('imageDropZoneEmpty');
+const imagePreview = document.getElementById('imagePreview');
+const imagePreviewImg = document.getElementById('imagePreviewImg');
+const imageRemoveBtn = document.getElementById('imageRemoveBtn');
+const imageFileInput = document.getElementById('imageFileInput');
+const imageBrowseBtn = document.getElementById('imageBrowseBtn');
+
+let capturedImage = null; // {base64, mimeType, previewUrl} | null
+
+/**
+ * Chequea que un File/clipboard item sea efectivamente una imagen antes de
+ * intentar procesarlo, para poder mostrar un error curado en vez de mandarlo
+ * a Gemini o romper en el canvas.
+ * @param {File} file
+ * @returns {boolean}
+ */
+function isImageFile(file){
+  return Boolean(file && typeof file.type === 'string' && file.type.startsWith('image/'));
+}
+
+/**
+ * Redimensiona y recomprime una imagen en el cliente antes de mandarla a
+ * Gemini: evita pagar payload/latencia de capturas 4K o retina sin
+ * necesidad (el título de una historia se lee perfecto a 1600px). Reescala
+ * el lado más largo a IMAGE_MAX_DIMENSION solo si lo supera (nunca agranda
+ * una imagen chica) y siempre recodifica como JPEG a calidad
+ * IMAGE_JPEG_QUALITY. Las capturas de pantalla de Excel/Jira/Trello no
+ * dependen de transparencia, así que aplanar a fondo blanco (necesario para
+ * convertir a JPEG) no pierde nada relevante para leer títulos.
+ *
+ * @param {File} file - Archivo ya validado con isImageFile.
+ * @returns {Promise<{base64:string, mimeType:string, previewUrl:string}>}
+ * @throws {Error} Si el archivo no se puede decodificar como imagen.
+ */
+function resizeAndCompressImage(file){
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      let width = img.naturalWidth;
+      let height = img.naturalHeight;
+      const longest = Math.max(width, height);
+      if(longest > IMAGE_MAX_DIMENSION){
+        const scale = IMAGE_MAX_DIMENSION / longest;
+        width = Math.round(width * scale);
+        height = Math.round(height * scale);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#FFFFFF'; // fondo blanco: evita que la transparencia se vuelva negra en JPEG
+      ctx.fillRect(0, 0, width, height);
+      ctx.drawImage(img, 0, 0, width, height);
+      URL.revokeObjectURL(objectUrl);
+      canvas.toBlob(blob => {
+        if(!blob){ reject(new Error('No se pudo procesar la imagen en el navegador.')); return; }
+        const reader = new FileReader();
+        reader.onload = () => {
+          const dataUrl = String(reader.result || '');
+          const base64 = dataUrl.split(',')[1] || '';
+          if(!base64){ reject(new Error('No se pudo codificar la imagen procesada.')); return; }
+          resolve({ base64, mimeType: 'image/jpeg', previewUrl: dataUrl });
+        };
+        reader.onerror = () => reject(new Error('No se pudo leer la imagen procesada.'));
+        reader.readAsDataURL(blob);
+      }, 'image/jpeg', IMAGE_JPEG_QUALITY);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error('El archivo no se pudo abrir como imagen. Probá con otro archivo o captura.'));
+    };
+    img.src = objectUrl;
+  });
+}
+
+function showImagePreview(previewUrl){
+  imagePreviewImg.src = previewUrl;
+  imageDropZoneEmpty.style.display = 'none';
+  imagePreview.style.display = 'flex';
+}
+
+/** Descarta la imagen cargada y vuelve el dropzone a su estado vacío. */
+function clearCapturedImage(){
+  capturedImage = null;
+  imagePreviewImg.src = '';
+  imagePreview.style.display = 'none';
+  imageDropZoneEmpty.style.display = 'flex';
+  imageFileInput.value = '';
+}
+
+/**
+ * Procesa un File recién pegado o subido: valida que sea imagen, lo
+ * redimensiona/comprime y lo deja listo en `capturedImage` para el próximo
+ * click en "Generar historias". No dispara la generación por sí solo.
+ * @param {File} file
+ */
+async function handleImageFile(file){
+  if(!isImageFile(file)){
+    setStatus('El archivo pegado/subido no es una imagen válida. Probá con un PNG o JPG.', true);
+    return;
+  }
+  try{
+    setStatus('Procesando imagen...');
+    capturedImage = await resizeAndCompressImage(file);
+    showImagePreview(capturedImage.previewUrl);
+    setStatus('Imagen lista. Click en "Generar historias" cuando quieras.');
+  }catch(err){
+    console.error(err);
+    setStatus('No se pudo procesar la imagen: ' + err.message, true);
+  }
+}
+
+// Paste a nivel document (no solo dentro del dropzone): la app no tiene
+// ningún otro campo que consuma imágenes pegadas (el textarea de texto
+// ignora imágenes al pegar texto), así que capturar el evento en cualquier
+// parte de la página replica el flujo real de uso (Win+Shift+S y Ctrl+V
+// directo, sin tener que clickear primero un cuadro específico). Se ignora
+// mientras el modal de API key está abierto, para no interferir con ese flujo.
+document.addEventListener('paste', (e) => {
+  if(!apiKeyModal.hidden) return;
+  if(!e.clipboardData || !e.clipboardData.items) return;
+  const items = Array.from(e.clipboardData.items);
+  const imageItem = items.find(it => it.kind === 'file' && it.type && it.type.startsWith('image/'));
+  if(!imageItem) return; // paste de texto normal (ej. en el textarea): no interferir
+  const file = imageItem.getAsFile();
+  if(!file) return;
+  e.preventDefault();
+  handleImageFile(file);
+});
+
+imageDropZone.addEventListener('click', () => imageFileInput.click());
+imageDropZone.addEventListener('keydown', (e) => {
+  if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); imageFileInput.click(); }
+});
+imageBrowseBtn.addEventListener('click', (e) => { e.stopPropagation(); imageFileInput.click(); });
+imageRemoveBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  clearCapturedImage();
+  setStatus('');
+});
+
+imageFileInput.addEventListener('change', () => {
+  const file = imageFileInput.files && imageFileInput.files[0];
+  if(file){ handleImageFile(file); }
+});
+
+// ============================================================================
 // Generación de historias: llamada DIRECTA desde el navegador a la Gemini
 // API (Generative Language API de Google), con la API key que la persona
 // pegó en el panel de configuración (localStorage, ver arriba).
@@ -1289,8 +1515,21 @@ const GEMINI_MODEL = 'gemini-2.5-flash';
 // estructura no cambió su volumen de campos respecto a la versión previa.
 const MAX_OUTPUT_TOKENS_HUMANA = 8192;
 const MAX_OUTPUT_TOKENS_AGENTICA = 16384;
-function getMaxOutputTokens(tipo){
-  return tipo === 'agentica' ? MAX_OUTPUT_TOKENS_AGENTICA : MAX_OUTPUT_TOKENS_HUMANA;
+// Con imagen se duplica cada presupuesto de nuevo: una captura de Excel/Jira
+// puede traer 15-20 títulos en un solo pedido, y cada uno genera una historia
+// completa (no un resumen), así que el volumen total de la respuesta escala
+// con la cantidad de títulos detectados, no con "una idea" como en modo texto.
+// Mismo criterio que ya se usó para diferenciar humana/agentica: preferir un
+// margen generoso contra MAX_TOKENS antes que forzar al usuario a partir la
+// captura en varias, sin llevarlo a un valor arbitrariamente alto que solo
+// suma latencia/costo. No hay una fórmula exacta detrás del factor x2: es una
+// estimación conservadora, ajustable si en uso real se ve que se queda corta
+// o que sobra de más.
+const MAX_OUTPUT_TOKENS_HUMANA_IMAGEN = 16384;
+const MAX_OUTPUT_TOKENS_AGENTICA_IMAGEN = 32768;
+function getMaxOutputTokens(tipo, hasImage){
+  if(tipo === 'agentica') return hasImage ? MAX_OUTPUT_TOKENS_AGENTICA_IMAGEN : MAX_OUTPUT_TOKENS_AGENTICA;
+  return hasImage ? MAX_OUTPUT_TOKENS_HUMANA_IMAGEN : MAX_OUTPUT_TOKENS_HUMANA;
 }
 // gemini-2.5-flash no soporta razonamiento apagado del todo salvo con
 // thinkingBudget: 0 (ver nota histórica en server.js / README). Si alguna
@@ -1299,14 +1538,29 @@ const THINKING_BUDGET = /-pro/i.test(GEMINI_MODEL) ? 128 : 0;
 
 /**
  * Arma el systemInstruction para Gemini según el tipo de historia elegido en
- * el toggle. No le pide `id` a la IA en ningún caso: el ID lo asigna
+ * el toggle, agregando (sin duplicar) la instrucción de modo imagen cuando
+ * corresponde. No le pide `id` a la IA en ningún caso: el ID lo asigna
  * siempre el generador propio de la app (formatId/nextIdNumber).
  *
  * @param {'humana'|'agentica'} tipo
+ * @param {boolean} hasImage - true si el request incluye una imagen adjunta.
  * @returns {string}
  */
-function buildSystemInstruction(tipo){
-  return tipo === 'agentica' ? buildSystemInstructionAgentica() : buildSystemInstructionHumana();
+function buildSystemInstruction(tipo, hasImage){
+  const base = tipo === 'agentica' ? buildSystemInstructionAgentica() : buildSystemInstructionHumana();
+  return hasImage ? (base + '\n\n' + buildImageModeInstruction()) : base;
+}
+
+/**
+ * Instrucción adicional que se agrega al system instruction (humana o
+ * agéntica) SOLO cuando el usuario adjuntó una captura de pantalla. No
+ * duplica ni repite la estructura de campos ya definida en
+ * buildSystemInstructionHumana/Agentica: solo indica cómo leer la imagen y
+ * cuántas historias generar a partir de ella.
+ * @returns {string}
+ */
+function buildImageModeInstruction(){
+  return `Ademas de lo anterior, vas a recibir una captura de pantalla DIGITAL (por ejemplo de Excel, Jira, Trello, o una herramienta interna de gestion de proyectos como "PM Scrum") con una lista de titulos de historias de usuario, uno por fila o renglon. El texto de la captura es tipeado/impreso (no manuscrito), asi que leelo tal como esta escrito, sin inventar ni corregir titulos. Genera UNA historia completa por cada titulo que puedas identificar en la imagen, siguiendo exactamente la misma estructura de campos ya definida mas arriba (no reduzcas ni resumas la estructura para el modo imagen). Si ademas recibis contexto o instrucciones adicionales de texto junto con la imagen, aplicalas a TODAS las historias generadas desde la imagen (por ejemplo, "estas son todas para el modulo de pagos"). Si no podes identificar ningun titulo legible en la imagen, respondé unicamente con un array vacio: [].`;
 }
 
 function buildSystemInstructionHumana(){
@@ -1429,17 +1683,39 @@ function isTransientOverloadError(httpStatus, upstreamMessage, upstreamStatus){
 
 /**
  * Llama directamente a la Gemini API desde el navegador para convertir una
- * idea en historias de usuario. Reemplaza al antiguo POST /api/generate-stories
- * de server.js: ya no hay backend propio en el flujo de generación.
+ * idea (texto), una imagen con títulos, o ambas, en historias de usuario.
+ * Reemplaza al antiguo POST /api/generate-stories de server.js: ya no hay
+ * backend propio en el flujo de generación.
  *
- * @param {string} ideaText - Idea ya validada (no vacía).
+ * @param {string} ideaText - Idea en texto (puede ser '' si solo hay imagen).
+ * @param {{base64:string, mimeType:string}|null} imageObj - Imagen ya
+ *   redimensionada/comprimida (capturedImage), o null si no hay imagen.
  * @param {string} apiKey - API key de Gemini de la persona, leída de localStorage.
  * @param {'humana'|'agentica'} tipo - Estructura de historia elegida en el toggle.
  * @returns {Promise<Array<object>>} Array de historias de usuario.
  * @throws {Error} Con mensaje curado, apto para mostrar directo al usuario.
  */
-async function generateStoriesFromIdea(ideaText, apiKey, tipo){
+async function generateStoriesFromIdea(ideaText, imageObj, apiKey, tipo){
   const url = `${GEMINI_API_BASE}/models/${GEMINI_MODEL}:generateContent`;
+  const hasImage = Boolean(imageObj);
+
+  // Arma las parts del mensaje de usuario: texto (si hay) + inlineData de la
+  // imagen (si hay). Con imagen, el texto libre se trata como contexto
+  // adicional para TODAS las historias detectadas en la captura, no como "la
+  // idea" en sí (ver buildImageModeInstruction).
+  const userParts = [];
+  if(ideaText){
+    userParts.push({
+      text: hasImage
+        ? `Contexto/instrucciones adicionales del usuario, aplican a TODAS las historias generadas desde la imagen:\n${ideaText}`
+        : `Idea del usuario:\n${ideaText}`
+    });
+  } else if(hasImage){
+    userParts.push({ text: 'Genera una historia completa por cada titulo de historia de usuario visible en la imagen adjunta.' });
+  }
+  if(hasImage){
+    userParts.push({ inlineData: { mimeType: imageObj.mimeType, data: imageObj.base64 } });
+  }
 
   let response;
   try{
@@ -1450,10 +1726,10 @@ async function generateStoriesFromIdea(ideaText, apiKey, tipo){
         'x-goog-api-key': apiKey,
       },
       body: JSON.stringify({
-        systemInstruction: { parts: [{ text: buildSystemInstruction(tipo) }] },
-        contents: [{ role: 'user', parts: [{ text: `Idea del usuario:\n${ideaText}` }] }],
+        systemInstruction: { parts: [{ text: buildSystemInstruction(tipo, hasImage) }] },
+        contents: [{ role: 'user', parts: userParts }],
         generationConfig: {
-          maxOutputTokens: getMaxOutputTokens(tipo),
+          maxOutputTokens: getMaxOutputTokens(tipo, hasImage),
           responseMimeType: 'application/json',
           thinkingConfig: { thinkingBudget: THINKING_BUDGET },
         },
@@ -1502,7 +1778,9 @@ async function generateStoriesFromIdea(ideaText, apiKey, tipo){
   // JSON.parse para dar un mensaje claro en vez del genérico "JSON inválido".
   if(finishReason === 'MAX_TOKENS'){
     throw new Error(
-      'La respuesta de Gemini se cortó por exceder el límite de tokens. Probá con una idea más corta o separá las historias en varios pedidos.'
+      hasImage
+        ? 'La respuesta de Gemini se cortó por exceder el límite de tokens. Probá con una captura con menos historias, o separalas en varios pedidos.'
+        : 'La respuesta de Gemini se cortó por exceder el límite de tokens. Probá con una idea más corta o separá las historias en varios pedidos.'
     );
   }
 
@@ -1549,7 +1827,9 @@ const OVERLOAD_RETRY_DELAYS_MS = [3000, 5500];
  * producción (el pedido a Gemini respondía 503 pero no había ninguna señal
  * de que se estaba reintentando).
  *
- * @param {string} ideaText - Idea ya validada (no vacía).
+ * @param {string} ideaText - Idea en texto (puede ser '' si solo hay imagen).
+ * @param {{base64:string, mimeType:string}|null} imageObj - Imagen ya
+ *   procesada (capturedImage), o null si no hay imagen.
  * @param {string} apiKey - API key de Gemini de la persona.
  * @param {'humana'|'agentica'} tipo - Estructura de historia elegida en el toggle.
  * @param {(nextAttempt: number, totalAttempts: number) => void} [onRetry] -
@@ -1558,11 +1838,11 @@ const OVERLOAD_RETRY_DELAYS_MS = [3000, 5500];
  * @returns {Promise<Array<object>>} Array de historias de usuario.
  * @throws {Error} El mismo tipo de error curado que generateStoriesFromIdea.
  */
-async function generateStoriesFromIdeaWithRetry(ideaText, apiKey, tipo, onRetry){
+async function generateStoriesFromIdeaWithRetry(ideaText, imageObj, apiKey, tipo, onRetry){
   const totalAttempts = OVERLOAD_RETRY_DELAYS_MS.length + 1;
   for(let attempt = 1; attempt <= totalAttempts; attempt++){
     try{
-      return await generateStoriesFromIdea(ideaText, apiKey, tipo);
+      return await generateStoriesFromIdea(ideaText, imageObj, apiKey, tipo);
     }catch(err){
       const isLastAttempt = attempt === totalAttempts;
       if(!err.isTransientOverload || isLastAttempt){
@@ -1580,8 +1860,9 @@ const generateBtn = document.getElementById('generateBtn');
 
 generateBtn.addEventListener('click', async () => {
   const idea = transcriptEl.value.trim();
-  if(!idea){
-    setStatus('Contá o escribí la idea primero.', true);
+  const hasImage = Boolean(capturedImage);
+  if(!idea && !hasImage){
+    setStatus('Contá o escribí tu idea, o pegá/subí una captura con títulos, antes de generar.', true);
     return;
   }
 
@@ -1596,11 +1877,13 @@ generateBtn.addEventListener('click', async () => {
   setStatus('Generando historias...');
 
   try{
-    const newStories = await generateStoriesFromIdeaWithRetry(idea, apiKey, tipo, (nextAttempt, totalAttempts) => {
+    const newStories = await generateStoriesFromIdeaWithRetry(idea, capturedImage, apiKey, tipo, (nextAttempt, totalAttempts) => {
       setStatus(`Gemini está con mucha demanda, reintentando... (intento ${nextAttempt} de ${totalAttempts})`);
     });
     if(!Array.isArray(newStories) || newStories.length === 0){
-      throw new Error('No se generaron historias, probá reformular la idea.');
+      throw new Error(hasImage
+        ? 'No se identificaron títulos en la imagen. Probá con una captura más clara o completá la idea manualmente.'
+        : 'No se generaron historias, probá reformular la idea.');
     }
     newStories.forEach(s => {
       const story = {

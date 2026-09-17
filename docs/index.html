@@ -551,6 +551,7 @@
     <h2>Backlog</h2>
     <div class="results-actions">
       <button class="ghost" id="exportBtn">Exportar a Excel</button>
+      <button class="ghost" id="exportJsonBtn">Exportar a PM Scrum (JSON)</button>
       <button class="ghost" id="clearBacklogBtn">Vaciar backlog</button>
     </div>
   </div>
@@ -2006,6 +2007,156 @@ document.getElementById('exportBtn').addEventListener('click', () => {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Backlog');
   XLSX.writeFile(wb, 'backlog.xlsx');
+});
+
+/**
+ * Mapea la prioridad interna ("Alta"/"Media"/"Baja") al valor en inglés
+ * que espera el importador "Importar desde Jira" de PM Scrum
+ * (jira-import.mapper.ts): es el único campo del contrato sin equivalente
+ * en español del lado del importador. Si llega un valor desconocido (dato
+ * legacy corrupto), cae a "Medium" en vez de romper el export.
+ * @param {string} prioridad - "Alta", "Media" o "Baja".
+ * @returns {string} "High", "Medium" o "Low".
+ */
+function mapPriorityToPmScrum(prioridad){
+  const map = { 'Alta': 'High', 'Media': 'Medium', 'Baja': 'Low' };
+  return map[prioridad] || 'Medium';
+}
+
+/**
+ * Arma el bloque HTML del checklist de DOD para la descripción exportada
+ * a PM Scrum. El editor de descripción de PM Scrum es rich text
+ * (Tiptap/ProseMirror), así que el estado de cada item se expresa en
+ * texto ("hecho"/"pendiente") en vez de un checkbox real, que el
+ * importador no interpreta. Si no hay items, devuelve '' y la sección
+ * entera se omite de la descripción (una etiqueta "DOD" con una lista
+ * vacía abajo se ve como un dato roto, no como un dato ausente).
+ * @param {Array<{texto:string, hecho:boolean}>} dod
+ * @returns {string}
+ */
+function renderDodHtmlForExport(dod){
+  const items = dod || [];
+  if(items.length === 0) return '';
+  const lis = items.map(d => `<li>${escapeHtml(d.texto)} — ${d.hecho ? 'hecho' : 'pendiente'}</li>`).join('');
+  return `<p><strong>DOD (Definición de Terminado):</strong></p><ul>${lis}</ul>`;
+}
+
+/**
+ * Arma el bloque HTML de los escenarios Dado/Cuando/Entonces para la
+ * descripción exportada a PM Scrum. Mismo criterio que renderDodHtmlForExport:
+ * sin escenarios, devuelve '' y se omite la sección completa.
+ * @param {Array<{dado:string, cuando:string, entonces:string}>} criterios
+ * @returns {string}
+ */
+function renderCriteriosHtmlForExport(criterios){
+  const items = criterios || [];
+  if(items.length === 0) return '';
+  const lis = items.map((c, idx) => `<li><strong>Escenario ${idx + 1}</strong><br>Dado: ${escapeHtml(c.dado)}<br>Cuando: ${escapeHtml(c.cuando)}<br>Entonces: ${escapeHtml(c.entonces)}</li>`).join('');
+  return `<p><strong>Criterio de aceptación:</strong></p><ol>${lis}</ol>`;
+}
+
+/**
+ * Arma el bloque HTML de "Casos borde" (lista dentro de Especificación
+ * técnica, solo para historias agénticas). Sin casos, devuelve '' y se
+ * omite la sección, mismo criterio que DOD y Criterios.
+ * @param {Array<string>} casosBorde
+ * @returns {string}
+ */
+function renderCasosBordeHtmlForExport(casosBorde){
+  const items = casosBorde || [];
+  if(items.length === 0) return '';
+  const lis = items.map(c => `<li>${escapeHtml(c)}</li>`).join('');
+  return `<p><strong>Casos borde:</strong></p><ul>${lis}</ul>`;
+}
+
+/**
+ * Arma la descripción HTML de una historia para el export a PM Scrum,
+ * en el formato rico (Tiptap/ProseMirror) que espera el importador: un
+ * `\n` suelto sin tags se renderiza todo pegado en un párrafo, por eso
+ * cada campo va envuelto en <p>/<strong> reales.
+ *
+ * Sigue el mismo orden y las mismas etiquetas de negocio que ya usa el
+ * panel de detalle (renderStoryDetailFields) para cada tipo de historia,
+ * para que quien lea el JSON reconozca los mismos campos que ve en la app.
+ *
+ * Decisión de campos vacíos: los campos escalares (Como/Quiero/Para/
+ * Objetivo de negocio y los subcampos de texto de la historia agéntica)
+ * siempre muestran su etiqueta, con el valor vacío si no hay dato, para
+ * no esconder en silencio que una historia legacy migrada le falta un
+ * campo. Las secciones basadas en listas (DOD, Criterio de aceptación,
+ * Casos borde) se omiten por completo si están vacías, vía las funciones
+ * renderDodHtmlForExport / renderCriteriosHtmlForExport /
+ * renderCasosBordeHtmlForExport.
+ *
+ * @param {object} story - Historia normalizada (tipo 'humana' o 'agentica').
+ * @returns {string} HTML listo para el campo `fields.description`.
+ */
+function buildPmScrumDescriptionHtml(story){
+  const isAgentic = story.tipo === 'agentica';
+
+  let html = ''
+    + `<p><strong>Como:</strong> ${escapeHtml(story.como)}</p>`
+    + `<p><strong>Quiero:</strong> ${escapeHtml(story.quiero)}</p>`
+    + `<p><strong>Para:</strong> ${escapeHtml(story.para)}</p>`
+    + `<p><strong>Objetivo de negocio:</strong> ${escapeHtml(story.objetivoNegocio)}</p>`;
+
+  if(isAgentic){
+    const ctx = story.contextoAlcance || {};
+    const spec = story.especificacionTecnica || {};
+
+    html += `<p><strong>Contexto y alcance</strong></p>`
+      + `<p><strong>Sistemas involucrados:</strong> ${escapeHtml(ctx.sistemasInvolucrados)}</p>`
+      + `<p><strong>Non-goals:</strong> ${escapeHtml(ctx.nonGoals)}</p>`
+      + `<p><strong>Dependencias:</strong> ${escapeHtml(ctx.dependencias)}</p>`
+      + `<p><strong>Especificación técnica</strong></p>`
+      + `<p><strong>Inputs:</strong> ${escapeHtml(spec.inputs)}</p>`
+      + `<p><strong>Outputs:</strong> ${escapeHtml(spec.outputs)}</p>`
+      + `<p><strong>Reglas de negocio:</strong> ${escapeHtml(spec.reglasNegocio)}</p>`
+      + `<p><strong>Restricciones técnicas:</strong> ${escapeHtml(spec.restriccionesTecnicas)}</p>`
+      + renderCasosBordeHtmlForExport(spec.casosBorde)
+      + renderCriteriosHtmlForExport(story.criteriosAceptacion)
+      + renderDodHtmlForExport(story.dod)
+      + `<p><strong>Nivel de autonomía:</strong> ${escapeHtml(story.nivelAutonomia)}</p>`
+      + `<p><strong>Plan de rollback:</strong> ${escapeHtml(story.planRollback)}</p>`;
+  } else {
+    html += renderDodHtmlForExport(story.dod)
+      + renderCriteriosHtmlForExport(story.criteriosAceptacion);
+  }
+
+  return html;
+}
+
+document.getElementById('exportJsonBtn').addEventListener('click', () => {
+  if(stories.length === 0){
+    setStatus('No hay historias para exportar todavía.', true);
+    return;
+  }
+  const payload = {
+    issues: stories.map(s => ({
+      id: s.id,
+      key: s.id,
+      fields: {
+        issuetype: { name: 'Story' },
+        summary: s.titulo,
+        status: { name: 'To Do' },
+        priority: { name: mapPriorityToPmScrum(s.prioridad) },
+        customfield_10028: Number(s.puntos) || 0,
+        description: buildPmScrumDescriptionHtml(s)
+      },
+      changelog: { histories: [] }
+    }))
+  };
+  const json = JSON.stringify(payload, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'backlog-pm-scrum.json';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+  setStatus('Backlog exportado a backlog-pm-scrum.json.');
 });
 
 document.getElementById('clearBacklogBtn').addEventListener('click', () => {

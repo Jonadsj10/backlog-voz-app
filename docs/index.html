@@ -309,6 +309,22 @@
   .pill-priority.media{ background: var(--amber-bg); color: var(--amber); }
   .pill-priority.baja{ background: var(--green-bg); color: var(--green); }
 
+  /* Pill de puntos editable inline en la fila: mismo look que .pill-points,
+     pero con un <input type="number"> adentro en vez de texto fijo. */
+  .pill-points-edit{
+    background: #F0F0F5; color: var(--ink-soft);
+    gap:3px; padding-right:8px;
+  }
+  .points-input{
+    width: 26px; border:none; background:transparent; padding:0; margin:0;
+    font-family: var(--font-mono); font-size:11px; font-weight:600; letter-spacing:.02em;
+    color: var(--ink-soft); text-align:right;
+    -moz-appearance: textfield;
+  }
+  .points-input:focus{ outline: 1px solid var(--accent); outline-offset: 2px; border-radius:3px; }
+  .points-input::-webkit-outer-spin-button,
+  .points-input::-webkit-inner-spin-button{ -webkit-appearance:none; margin:0; }
+
   .empty-state{
     text-align:center;
     padding: 60px 20px;
@@ -481,6 +497,7 @@
     </div>
     <div class="header-right">
       <div class="counter"><strong id="storyCount">0</strong>historias en el backlog</div>
+      <div class="counter"><strong id="totalPoints">0</strong>story points</div>
       <button class="apikey-btn" id="apiKeyBtn" title="Configurar tu API key de Gemini">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0L19 4m-3.5 3.5L19 11"/>
@@ -704,6 +721,7 @@ let nextIdNumber = 1;
 const grid = document.getElementById('grid');
 const emptyState = document.getElementById('emptyState');
 const storyCount = document.getElementById('storyCount');
+const totalPoints = document.getElementById('totalPoints');
 const statusLine = document.getElementById('statusLine');
 const transcriptEl = document.getElementById('transcript');
 
@@ -913,6 +931,24 @@ function priorityClass(p){
   return 'media';
 }
 
+/**
+ * Sanitiza un valor crudo de story points (siempre viene de un input numérico
+ * libre, fila o panel de detalle) para nunca persistir NaN ni negativos.
+ * Vacío -> 0. Negativo o no numérico -> vuelve al valor anterior de la
+ * historia (o 0 si tampoco había uno válido).
+ * @param {string|number} raw - valor crudo tomado del input.
+ * @param {number} previous - valor previo de story.puntos, usado como fallback.
+ * @returns {number}
+ */
+function sanitizePoints(raw, previous){
+  const n = Number(raw);
+  if(!Number.isFinite(n) || n < 0){
+    const fallback = Number(previous);
+    return (Number.isFinite(fallback) && fallback >= 0) ? fallback : 0;
+  }
+  return n;
+}
+
 function escapeHtml(str){
   return (str || '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 }
@@ -985,13 +1021,17 @@ function renderCriteriosList(story){
 
 /**
  * Renderiza el backlog como lista compacta: una fila por historia con
- * ID, tipo, título y las métricas clave (puntos, prioridad), sin ningún
- * campo editable inline. El detalle completo y editable vive en el panel
- * lateral (ver openDetail más abajo), que se abre al hacer click en la fila.
+ * ID, tipo, título y las métricas clave (puntos, prioridad). Los puntos son
+ * editables directo en la fila (input numérico); el resto del detalle
+ * completo y editable vive en el panel lateral (ver openDetail más abajo),
+ * que se abre al hacer click en cualquier otra parte de la fila.
+ * También recalcula y pinta el contador de historias y la suma total de
+ * story points del backlog actual.
  */
 function render(){
   grid.innerHTML = '';
   storyCount.textContent = stories.length;
+  totalPoints.textContent = stories.reduce((sum, s) => sum + (Number(s.puntos) || 0), 0);
 
   if(stories.length === 0){
     grid.appendChild(emptyState);
@@ -1008,7 +1048,9 @@ function render(){
       <span class="pill pill-type ${isAgentic ? 'agentica' : 'humana'}">${isAgentic ? 'HU AI' : 'HU'}</span>
       <span class="row-title">${escapeHtml(story.titulo) || 'Sin título'}</span>
       <span class="row-right">
-        <span class="pill pill-points">${Number(story.puntos) || 0} SP</span>
+        <span class="pill pill-points-edit">
+          <input type="number" class="points-input" min="0" step="1" data-field="puntos" data-id="${story.id}" value="${Number(story.puntos) || 0}" title="Story points" aria-label="Story points">SP
+        </span>
         <span class="pill pill-priority ${priorityClass(story.prioridad)}">${escapeHtml(story.prioridad || 'Media')}</span>
         <button class="row-delete" type="button" data-action="delete" data-id="${story.id}" title="Eliminar historia" aria-label="Eliminar historia">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -1116,9 +1158,7 @@ function renderStoryDetailFields(story){
     <div class="meta-row">
       <div class="field">
         <label>PUNTOS</label>
-        <select data-field="puntos" data-id="${story.id}">
-          ${[1,2,3,5,8,13,21].map(p => `<option value="${p}" ${Number(story.puntos)===p?'selected':''}>${p}</option>`).join('')}
-        </select>
+        <input type="number" min="0" step="1" data-field="puntos" data-id="${story.id}" value="${Number(story.puntos) || 0}">
       </div>
       <div class="field">
         <label>PRIORIDAD</label>
@@ -1187,6 +1227,12 @@ document.addEventListener('keydown', (e) => {
 
 // ---------- eventos de la lista: eliminar fila / abrir detalle ----------
 grid.addEventListener('click', (e) => {
+  // El input de puntos se edita inline: no debe disparar la apertura del
+  // panel de detalle al clickearlo (mismo criterio que el botón eliminar).
+  if(e.target.closest('.points-input')){
+    e.stopPropagation();
+    return;
+  }
   const delBtn = e.target.closest('[data-action="delete"]');
   if(delBtn){
     e.stopPropagation();
@@ -1199,6 +1245,24 @@ grid.addEventListener('click', (e) => {
   }
   const row = e.target.closest('.row-item');
   if(row){ openDetail(row.dataset.id); }
+});
+
+// El focus (ej. llegar al input con Tab) tampoco debe interferir con la fila.
+grid.addEventListener('focusin', (e) => {
+  if(e.target.closest('.points-input')){
+    e.stopPropagation();
+  }
+});
+
+// Puntos editados directo desde la fila de la lista, sin abrir el drawer.
+grid.addEventListener('change', (e) => {
+  const input = e.target.closest('.points-input');
+  if(!input) return;
+  const story = stories.find(s => s.id === input.dataset.id);
+  if(!story) return;
+  story.puntos = sanitizePoints(input.value, story.puntos);
+  render();
+  saveBacklog();
 });
 
 // ---------- eventos del panel de detalle: agregar/quitar items, editar campos ----------
@@ -1236,7 +1300,7 @@ drawerBody.addEventListener('change', (e) => {
   if(e.target.type === 'checkbox'){
     value = e.target.checked;
   } else if(field === 'puntos'){
-    value = Number(e.target.value);
+    value = sanitizePoints(e.target.value, story.puntos);
   } else if(field === 'especificacionTecnica.casosBorde'){
     value = e.target.value.split('\n').map(s => s.trim()).filter(Boolean);
   } else {
@@ -1245,6 +1309,11 @@ drawerBody.addEventListener('change', (e) => {
 
   setPath(story, field, value);
   render(); // refresca la fila de la lista (título/puntos/prioridad pueden haber cambiado)
+  if(field === 'puntos'){
+    // El valor puede haber sido saneado (vacío/negativo/no numérico): refleja
+    // el número final en el propio input del panel en vez de dejar lo tipeado.
+    refreshOpenDetail();
+  }
   saveBacklog();
 });
 

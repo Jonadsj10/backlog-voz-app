@@ -250,6 +250,21 @@
   .type-toggle-btn:hover:not(.active){ color: var(--accent); }
   .type-toggle-help{ font-size: 11.5px; color: var(--ink-faint); margin: 4px 0 0; }
 
+  /* ---- Campo Sprint (global, opcional): agrupa las tandas de generación ---- */
+  .sprint-field{ display:flex; flex-direction:column; gap:5px; margin: 8px 0 2px; }
+  .sprint-field label{
+    font-family: var(--font-mono); font-size: 11px; letter-spacing:.04em; text-transform:uppercase;
+    color: var(--ink-faint);
+  }
+  .sprint-field input{
+    width: 180px;
+    border: 1px solid var(--border); background: #FAFAFC; border-radius: 6px;
+    padding: 7px 10px; font-family: var(--font-body); font-size: 13px; color: var(--ink);
+  }
+  .sprint-field input:focus{
+    outline:none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft-bg);
+  }
+
   /* ---- Results ---- */
   .results-head{
     display:flex; justify-content:space-between; align-items:center;
@@ -526,6 +541,10 @@
         <button type="button" class="type-toggle-btn" data-tipo="agentica">HU AI</button>
       </div>
       <p class="type-toggle-help">HU: historia tradicional para el equipo. HU AI: historia agéntica, extendida, para que la ejecute un agente de IA.</p>
+      <div class="sprint-field">
+        <label for="sprintInput">SPRINT (OPCIONAL)</label>
+        <input type="text" id="sprintInput" placeholder="Ej: Sprint 10.1" autocomplete="off">
+      </div>
       <label for="transcript">TU IDEA (podés editarla antes de generar)</label>
       <textarea id="transcript" placeholder="Ej: necesito que el equipo pueda filtrar los pedidos por estado y que además se pueda exportar ese listado a excel..."></textarea>
       <div id="supportWarning" class="support-warning" style="display:none;">
@@ -766,6 +785,38 @@ typeToggle.addEventListener('click', (e) => {
 
 setSelectedTipo(getSelectedTipo());
 
+// ---------- campo Sprint (global, opcional), persistido por navegador ----------
+// Mismo patrón que la API key y el toggle de tipo: se guarda en localStorage
+// para que sobreviva recargas de página. Existe para resolver una colisión de
+// claves en el export a PM Scrum: el contador local de ID (nextIdNumber) se
+// reinicia a 1 en "Vaciar backlog", así que dos tandas generadas en sesiones
+// distintas pueden terminar con el mismo "HU-001". Al incluir el sprint
+// vigente en cada historia y usarlo para armar la key exportada
+// (sprint-id en vez de solo id), dos tandas con sprint distinto generan keys
+// distintas aunque el contador haya reiniciado en ambas. Es opcional: no
+// bloquea la generación si está vacío (ver uso en generateBtn más abajo).
+const SPRINT_STORAGE_KEY = 'backlog-current-sprint';
+const sprintInput = document.getElementById('sprintInput');
+
+function getCurrentSprint(){
+  try{
+    return (localStorage.getItem(SPRINT_STORAGE_KEY) || '').trim();
+  }catch(e){
+    return '';
+  }
+}
+
+function setCurrentSprint(value){
+  try{
+    localStorage.setItem(SPRINT_STORAGE_KEY, value);
+  }catch(e){
+    // localStorage no disponible en esta vista: el campo sigue funcionando en memoria
+  }
+}
+
+sprintInput.value = getCurrentSprint();
+sprintInput.addEventListener('input', () => setCurrentSprint(sprintInput.value));
+
 // ---------- normalización de datos de historias (esquema HU / HU AI) ----------
 /**
  * Lee un valor anidado de un objeto a partir de un path tipo "a.b.c".
@@ -876,6 +927,7 @@ function migrateStory(story){
     story.como = story.como || '';
     story.quiero = story.quiero || '';
     story.para = story.para || '';
+    story.sprint = story.sprint || '';
     return story;
   }
 
@@ -889,6 +941,7 @@ function migrateStory(story){
     quiero: story.quiero || '',
     para: story.para != null ? story.para : (story.paraQue || ''),
     objetivoNegocio: story.objetivoNegocio || '',
+    sprint: story.sprint || '',
     dod: normalizeDod(story.dod),
     criteriosAceptacion: (isLegacy && Array.isArray(story.criterios) && story.criterios.length)
       ? story.criterios.filter(Boolean).map(c => ({ dado: '', cuando: '', entonces: c }))
@@ -1165,6 +1218,10 @@ function renderStoryDetailFields(story){
         <select data-field="prioridad" data-id="${story.id}">
           ${['Alta','Media','Baja'].map(p => `<option value="${p}" ${story.prioridad===p?'selected':''}>${p}</option>`).join('')}
         </select>
+      </div>
+      <div class="field">
+        <label>SPRINT</label>
+        <input type="text" value="${escapeAttr(story.sprint || '')}" data-field="sprint" data-id="${story.id}" placeholder="Ej: Sprint 10.1">
       </div>
     </div>
   `;
@@ -1964,6 +2021,7 @@ generateBtn.addEventListener('click', async () => {
         quiero: s.quiero || '',
         para: s.para || '',
         objetivoNegocio: s.objetivoNegocio || '',
+        sprint: sprintInput.value.trim(), // sprint vigente en el campo AL MOMENTO DE GENERAR, igual criterio que 'tipo'
         dod: normalizeDod(s.dod),
         criteriosAceptacion: normalizeCriterios(s.criteriosAceptacion),
         puntos: Number(s.puntos) || 3,
@@ -2043,6 +2101,7 @@ document.getElementById('exportBtn').addEventListener('click', () => {
     const isAgentic = s.tipo === 'agentica';
     return {
       'ID': s.id,
+      'Sprint': s.sprint || '',
       'Tipo': isAgentic ? 'HU AI (agéntica)' : 'HU (tradicional)',
       'Titulo': s.titulo,
       'Como': s.como,
@@ -2067,7 +2126,7 @@ document.getElementById('exportBtn').addEventListener('click', () => {
   });
   const ws = XLSX.utils.json_to_sheet(rows);
   ws['!cols'] = [
-    {wch:10},{wch:18},{wch:24},{wch:22},{wch:26},{wch:22},{wch:26},
+    {wch:10},{wch:14},{wch:18},{wch:24},{wch:22},{wch:26},{wch:22},{wch:26},
     {wch:26},{wch:20},{wch:22},
     {wch:22},{wch:22},{wch:24},{wch:24},{wch:26},
     {wch:40},{wch:34},{wch:26},{wch:30},
@@ -2090,6 +2149,38 @@ document.getElementById('exportBtn').addEventListener('click', () => {
 function mapPriorityToPmScrum(prioridad){
   const map = { 'Alta': 'High', 'Media': 'Medium', 'Baja': 'Low' };
   return map[prioridad] || 'Medium';
+}
+
+/**
+ * Sanitiza el valor libre del campo Sprint para usarlo como parte de la
+ * `key`/`id` exportada a PM Scrum: recorta espacios en los extremos y
+ * colapsa cualquier espacio interno (" " o varios seguidos) para que la key
+ * final quede sin espacios (ej. "Sprint 10.1" -> "Sprint10.1"). No hace
+ * falta escapar nada más para que el resultado sea JSON válido: la key es
+ * simplemente el valor de un string, y JSON.stringify escapa cualquier
+ * caracter especial que pudiera quedar.
+ * @param {string} sprint - Valor crudo de story.sprint.
+ * @returns {string} Valor sanitizado, o '' si el sprint estaba vacío.
+ */
+function sanitizeSprintForKey(sprint){
+  return String(sprint || '').trim().replace(/\s+/g, '');
+}
+
+/**
+ * Arma la `key`/`id` de un issue exportado a PM Scrum. Cuando la historia
+ * tiene un sprint cargado, antepone el sprint sanitizado a su ID local
+ * (ej. "Sprint10.1-HU-001"); esto es lo que evita que dos tandas generadas
+ * en sesiones distintas (donde el contador local nextIdNumber se reinició a
+ * 1 tras "Vaciar backlog") colisionen en la misma key al reimportar, ya que
+ * cada tanda normalmente se carga con un sprint distinto. Sin sprint, se
+ * mantiene el comportamiento de siempre (key = solo el id), por
+ * compatibilidad con historias legacy.
+ * @param {object} story - Historia normalizada, con `id` y `sprint`.
+ * @returns {string}
+ */
+function buildPmScrumKey(story){
+  const sprintPart = sanitizeSprintForKey(story.sprint);
+  return sprintPart ? `${sprintPart}-${story.id}` : story.id;
 }
 
 /**
@@ -2202,8 +2293,8 @@ document.getElementById('exportJsonBtn').addEventListener('click', () => {
   }
   const payload = {
     issues: stories.map(s => ({
-      id: s.id,
-      key: s.id,
+      id: buildPmScrumKey(s),
+      key: buildPmScrumKey(s),
       fields: {
         issuetype: { name: 'Story' },
         summary: s.titulo,
